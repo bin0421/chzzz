@@ -82,4 +82,11 @@ export const api = {
   getLiveBroadcast(id: string | number) {
     return request<LiveBroadcastDetail>(`/api/live-broadcasts/${id}`)
   },
+  /** 송출자 종료. 송출 키를 아는 사람만 종료할 수 있다. */
+  endLiveBroadcast(id: number, streamKey: string) {
+    return request<LiveBroadcastDetail>(`/api/live-broadcasts/${id}/end`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${streamKey}` },
+    })
+  },
 }

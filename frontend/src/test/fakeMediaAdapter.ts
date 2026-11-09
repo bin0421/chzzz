@@ -1,9 +1,10 @@
 import { vi } from 'vitest'
 import type { CameraFacing, MediaAdapter, Publication, Viewing } from '../media/MediaAdapter'
 
-/** jsdom에는 MediaStream이 없으므로 식별용 가짜 객체를 쓴다. */
+/** jsdom에는 MediaStream이 없으므로 식별용 가짜 객체를 쓴다. 트랙은 끄기(stop)만 기록한다. */
 export function fakeStream(label: string): MediaStream {
-  return { id: label, getTracks: () => [] } as unknown as MediaStream
+  const tracks = [{ kind: 'video', stop: vi.fn() }, { kind: 'audio', stop: vi.fn() }]
+  return { id: label, getTracks: () => tracks } as unknown as MediaStream
 }
 
 /** 카메라·WebRTC를 흉내 내는 미디어 어댑터. 호출은 vi.fn으로 기록한다. */
