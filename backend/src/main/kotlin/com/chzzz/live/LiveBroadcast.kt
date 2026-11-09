@@ -48,6 +48,14 @@ class LiveBroadcast private constructor(
         return true
     }
 
+    /** 송출자 종료·끊김: 대기·방송 중일 때만 종료된다. 바뀌었으면 true. */
+    fun end(now: Instant): Boolean {
+        if (status == LiveBroadcastStatus.ENDED) return false
+        status = LiveBroadcastStatus.ENDED
+        endedAt = now.truncatedTo(ChronoUnit.MICROS)
+        return true
+    }
+
     companion object {
         fun start(title: String?, streamKeyHash: String, now: Instant): LiveBroadcast =
             LiveBroadcast(Title.normalize(title), streamKeyHash, now.truncatedTo(ChronoUnit.MICROS))

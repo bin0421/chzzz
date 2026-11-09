@@ -32,6 +32,13 @@ class MediaMtxHookController(
         service.onStreamAvailable(path)
         return ResponseEntity.ok().build()
     }
+
+    /** MediaMTX `runOnUnavailable` 훅: 송출이 끊겨 영상이 사라짐. 멱등이다. */
+    @PostMapping("/unavailable")
+    fun unavailable(@RequestParam path: String?): ResponseEntity<Void> {
+        service.onStreamUnavailable(path)
+        return ResponseEntity.ok().build()
+    }
 }
 
 /** MediaMTX HTTP 인증 요청 본문(필요한 필드만). */
