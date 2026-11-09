@@ -14,4 +14,10 @@ class ApiExceptionHandler {
             title = "잘못된 요청"
             setProperty("errors", e.errors)
         }
+
+    @ExceptionHandler(NotFoundException::class)
+    fun handleNotFound(e: NotFoundException): ProblemDetail =
+        ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, e.message ?: "찾을 수 없습니다.").apply {
+            title = "찾을 수 없음"
+        }
 }
