@@ -90,11 +90,93 @@ li {
 
 .live-preview {
   margin-bottom: 1rem;
+  border-radius: 6px;
+}
+
+.live-preview.mirrored {
   transform: scaleX(-1); /* 전면 카메라 미리보기는 거울처럼 보여 준다 */
 }
 
 .live-status {
   margin: 0.5rem 0 1rem;
+}
+
+/* 송출 화면 폼: 휴대폰 폭에서도 한 줄에 하나씩 쌓는다. */
+.live-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.live-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.live-form input:not([type='radio']) {
+  padding: 0.5rem;
+  font: inherit;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.live-form input[aria-invalid='true'] {
+  border-color: #d93025;
+}
+
+.live-form fieldset {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.live-form fieldset label {
+  flex-direction: row;
+  align-items: center;
+}
+
+.live-form button,
+.unmute {
+  padding: 0.6rem 1rem;
+  font: inherit;
+  font-weight: 600;
+  border: 0;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+}
+
+.live-form button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.unmute {
+  margin-top: 0.75rem;
+}
+
+.field-error {
+  margin: 0;
+  color: #d93025;
+  font-size: 0.9rem;
+}
+
+.notice {
+  margin-bottom: 1rem;
+}
+
+.notice p {
+  margin: 0.25rem 0;
+}
+
+/* 시청 화면 주소는 길어도 휴대폰 폭을 넘지 않게 줄바꿈한다. */
+.watch-link {
+  overflow-wrap: anywhere;
 }
 
 .empty {

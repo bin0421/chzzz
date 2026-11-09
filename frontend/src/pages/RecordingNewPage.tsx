@@ -1,19 +1,17 @@
 import { useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router'
 import { api, ApiError, type VideoSourceType } from '../api'
+import { validateTitle } from '../titleRule'
 
 type FieldErrors = Partial<Record<string, string>>
-
-const TITLE_MAX_LENGTH = 100
 
 /** 입력란 옆에 표시하는 필드. 그 밖의 필드 오류(예: source)는 폼 위 알림에 모은다. */
 const INPUT_FIELDS = ['title', 'url', 'file']
 
 function validate(title: string, sourceType: VideoSourceType, url: string): FieldErrors {
   const errors: FieldErrors = {}
-  const trimmedTitle = title.trim()
-  if (trimmedTitle.length === 0) errors.title = '제목을 입력해 주세요.'
-  else if (trimmedTitle.length > TITLE_MAX_LENGTH) errors.title = `제목은 ${TITLE_MAX_LENGTH}자 이하로 입력해 주세요.`
+  const titleError = validateTitle(title)
+  if (titleError) errors.title = titleError
   if (sourceType === 'EXTERNAL_URL') {
     const urlError = validateUrl(url.trim())
     if (urlError) errors.url = urlError
