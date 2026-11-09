@@ -1,5 +1,6 @@
 package com.chzzz.recording
 
+import com.chzzz.common.NotFoundException
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
@@ -20,9 +21,9 @@ class RecordingController(
         recordingService.list().map(RecordingSummaryResponse::from)
 
     @GetMapping("/{id}")
-    fun detail(@PathVariable id: Long): ResponseEntity<RecordingDetailResponse> {
-        val recording = recordingService.find(id) ?: return ResponseEntity.notFound().build()
-        return ResponseEntity.ok(RecordingDetailResponse.from(recording))
+    fun detail(@PathVariable id: Long): RecordingDetailResponse {
+        val recording = recordingService.find(id) ?: throw NotFoundException("녹화방송을 찾을 수 없습니다.")
+        return RecordingDetailResponse.from(recording)
     }
 
     @PostMapping
