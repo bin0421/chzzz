@@ -1,14 +1,27 @@
-import type { CameraFacing, MediaAdapter, Publication, Viewing } from './MediaAdapter'
+import {
+  MediaAccessError,
+  type CameraFacing,
+  type MediaAdapter,
+  type PlaybackResult,
+  type Publication,
+  type Viewing,
+} from './MediaAdapter'
 
 const ICE_GATHERING_TIMEOUT_MS = 2000
 
 /** 브라우저 표준 API(getUserMedia, RTCPeerConnection)와 WHIP/WHEP(HTTP + SDP)으로 구현한 미디어 어댑터. */
 export const webrtcMediaAdapter: MediaAdapter = {
   async openPreview(facing: CameraFacing) {
-    return navigator.mediaDevices.getUserMedia({
-      video: { facingMode: facing, width: { ideal: 1280 }, height: { ideal: 720 } },
-      audio: true,
-    })
+    // HTTPS(또는 localhost)가 아니면 브라우저가 navigator.mediaDevices 자체를 숨긴다.
+    if (!window.isSecureContext || !navigator.mediaDevices) throw new MediaAccessError('insecure-context')
+    try {
+      return await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: facing, width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: true,
+      })
+    } catch (error) {
+      throw toMediaAccessError(error)
+    }
   },
 
   async publish(stream, whipUrl, streamKey): Promise<Publication> {
@@ -25,6 +38,8 @@ export const webrtcMediaAdapter: MediaAdapter = {
       },
     }
   },
+
+  startPlayback,
 
   async watch(whepUrl): Promise<Viewing> {
     const pc = new RTCPeerConnection()
@@ -60,6 +75,36 @@ export const webrtcMediaAdapter: MediaAdapter = {
       },
     }
   },
+}
+
+/** 소리를 켠 채 재생하고, 자동재생 정책(NotAllowedError)에 막히면 음소거로 다시 재생한다. */
+async function startPlayback(video: HTMLVideoElement): Promise<PlaybackResult> {
+  video.muted = false
+  try {
+    await video.play()
+    return 'audible'
+  } catch (error) {
+    if (!(error instanceof DOMException && error.name === 'NotAllowedError')) throw error
+    video.muted = true
+    await video.play()
+    return 'muted'
+  }
+}
+
+/** getUserMedia의 DOMException 이름을 화면이 안내할 이유로 바꾼다. 모르는 오류는 그대로 둔다. */
+function toMediaAccessError(error: unknown): unknown {
+  if (!(error instanceof DOMException)) return error
+  switch (error.name) {
+    case 'NotAllowedError':
+    case 'SecurityError': // 브라우저·문서 정책이 카메라를 막았을 때
+      return new MediaAccessError('permission-denied', { cause: error })
+    case 'NotFoundError':
+    case 'NotReadableError': // 다른 앱이 카메라를 쓰고 있을 때
+    case 'OverconstrainedError':
+      return new MediaAccessError('no-device', { cause: error })
+    default:
+      return error
+  }
 }
 
 /** 오퍼를 만들고 ICE 후보를 모은 뒤 WHIP/WHEP 엔드포인트에 보내 응답 SDP와 세션 주소를 받는다. */

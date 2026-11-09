@@ -1,5 +1,5 @@
 import { vi } from 'vitest'
-import type { CameraFacing, MediaAdapter, Publication, Viewing } from '../media/MediaAdapter'
+import type { CameraFacing, MediaAdapter, PlaybackResult, Publication, Viewing } from '../media/MediaAdapter'
 
 /** jsdom에는 MediaStream이 없으므로 식별용 가짜 객체를 쓴다. 트랙은 끄기(stop)만 기록한다. */
 export function fakeStream(label: string): MediaStream {
@@ -25,6 +25,7 @@ export function createFakeMediaAdapter() {
     openPreview: vi.fn(async (_facing: CameraFacing) => previewStream),
     publish: vi.fn(async (_stream: MediaStream, _whipUrl: string, _streamKey: string) => publication),
     watch: vi.fn(async (_whepUrl: string) => viewing),
+    startPlayback: vi.fn(async (_video: HTMLVideoElement): Promise<PlaybackResult> => 'audible'),
   } satisfies MediaAdapter
 
   return {

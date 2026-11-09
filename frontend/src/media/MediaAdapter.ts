@@ -3,6 +3,19 @@ import { createContext, useContext } from 'react'
 /** 전면(user) 또는 후면(environment) 카메라. */
 export type CameraFacing = 'user' | 'environment'
 
+/** 카메라·마이크를 열지 못한 이유. 이유마다 해결 방법이 다르다. */
+export type MediaAccessFailure = 'permission-denied' | 'no-device' | 'insecure-context'
+
+/** 미리보기를 열지 못했을 때 어댑터가 내는 오류. */
+export class MediaAccessError extends Error {
+  readonly reason: MediaAccessFailure
+
+  constructor(reason: MediaAccessFailure, options?: ErrorOptions) {
+    super(`카메라·마이크를 열지 못했습니다: ${reason}`, options)
+    this.reason = reason
+  }
+}
+
 /** 송출 중인 연결. */
 export interface Publication {
   /** 송출을 멈추고 연결을 닫는다. */
@@ -29,7 +42,14 @@ export interface MediaAdapter {
   publish(stream: MediaStream, whipUrl: string, streamKey: string): Promise<Publication>
   /** WHEP으로 라이브 방송을 받는다. */
   watch(whepUrl: string): Promise<Viewing>
+  /**
+   * 소리를 켠 채 재생을 시도한다. 브라우저 자동재생 정책이 소리를 막으면
+   * 음소거로 재생하고 'muted'를 돌려준다(사용자가 눌러야 소리를 켤 수 있다).
+   */
+  startPlayback(video: HTMLVideoElement): Promise<PlaybackResult>
 }
+
+export type PlaybackResult = 'audible' | 'muted'
 
 export const MediaAdapterContext = createContext<MediaAdapter | null>(null)
 
