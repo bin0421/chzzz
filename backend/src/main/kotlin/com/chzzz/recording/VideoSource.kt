@@ -18,6 +18,9 @@ class VideoSource(
     val value: String,
 ) {
     companion object {
+        /** [storedName]은 서비스가 정한 저장 이름(UUID + 확장자)이다. */
+        fun uploadedFile(storedName: String) = VideoSource(VideoSourceType.UPLOADED_FILE, storedName)
+
         /** 녹화방송의 영상 출처는 업로드 파일 또는 외부 URL 중 정확히 하나다. */
         fun requireExactlyOne(hasFile: Boolean, hasUrl: Boolean) {
             if (!hasFile && !hasUrl) {
@@ -47,4 +50,5 @@ class VideoSource(
 
 enum class VideoSourceType {
     EXTERNAL_URL,
+    UPLOADED_FILE,
 }

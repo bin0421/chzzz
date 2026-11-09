@@ -1,21 +1,23 @@
 import { useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router'
-import { api, ApiError } from '../api'
+import { api, ApiError, type VideoSourceType } from '../api'
 
 type FieldErrors = Partial<Record<string, string>>
 
 const TITLE_MAX_LENGTH = 100
 
 /** 입력란 옆에 표시하는 필드. 그 밖의 필드 오류(예: source)는 폼 위 알림에 모은다. */
-const INPUT_FIELDS = ['title', 'url']
+const INPUT_FIELDS = ['title', 'url', 'file']
 
-function validate(title: string, url: string): FieldErrors {
+function validate(title: string, sourceType: VideoSourceType, url: string): FieldErrors {
   const errors: FieldErrors = {}
   const trimmedTitle = title.trim()
   if (trimmedTitle.length === 0) errors.title = '제목을 입력해 주세요.'
   else if (trimmedTitle.length > TITLE_MAX_LENGTH) errors.title = `제목은 ${TITLE_MAX_LENGTH}자 이하로 입력해 주세요.`
-  const urlError = validateUrl(url.trim())
-  if (urlError) errors.url = urlError
+  if (sourceType === 'EXTERNAL_URL') {
+    const urlError = validateUrl(url.trim())
+    if (urlError) errors.url = urlError
+  }
   return errors
 }
 
@@ -31,20 +33,28 @@ function validateUrl(url: string): string | undefined {
 export default function RecordingNewPage() {
   const navigate = useNavigate()
   const [title, setTitle] = useState('')
+  const [sourceType, setSourceType] = useState<VideoSourceType>('EXTERNAL_URL')
   const [url, setUrl] = useState('')
+  const [file, setFile] = useState<File | null>(null)
+  const [submitting, setSubmitting] = useState(false)
   const [errors, setErrors] = useState<FieldErrors>({})
   const [formError, setFormError] = useState<string>()
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
-    const clientErrors = validate(title, url)
+    const clientErrors = validate(title, sourceType, url)
     setErrors(clientErrors)
     setFormError(undefined)
     if (Object.keys(clientErrors).length > 0) return
 
     const form = new FormData()
     form.append('title', title)
-    form.append('url', url)
+    if (sourceType === 'UPLOADED_FILE') {
+      if (file) form.append('file', file)
+    } else {
+      form.append('url', url)
+    }
+    setSubmitting(true)
     try {
       const recording = await api.registerRecording(form)
       navigate(`/recordings/${recording.id}`)
@@ -52,6 +62,8 @@ export default function RecordingNewPage() {
       if (!(error instanceof ApiError)) throw error
       setErrors(Object.fromEntries(error.errors.map((e) => [e.field, e.message])))
       setFormError(error.message)
+    } finally {
+      setSubmitting(false)
     }
   }
 
@@ -85,18 +97,56 @@ export default function RecordingNewPage() {
           />
         </label>
         {errors.title && <p id="title-error">{errors.title}</p>}
-        <label>
-          영상 URL
-          <input
-            type="url"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            aria-invalid={errors.url ? true : undefined}
-            aria-describedby={errors.url ? 'url-error' : undefined}
-          />
-        </label>
-        {errors.url && <p id="url-error">{errors.url}</p>}
-        <button type="submit">등록</button>
+        <fieldset>
+          <legend>영상 출처</legend>
+          <label>
+            <input
+              type="radio"
+              name="sourceType"
+              checked={sourceType === 'UPLOADED_FILE'}
+              onChange={() => setSourceType('UPLOADED_FILE')}
+            />
+            업로드 파일
+          </label>
+          <label>
+            <input
+              type="radio"
+              name="sourceType"
+              checked={sourceType === 'EXTERNAL_URL'}
+              onChange={() => setSourceType('EXTERNAL_URL')}
+            />
+            외부 URL
+          </label>
+        </fieldset>
+        {/* key: 출처 종류가 바뀌면 같은 <input>을 재사용하지 않고 새로 만든다(제어/비제어 전환 경고 방지). */}
+        {sourceType === 'UPLOADED_FILE' ? (
+          <label key="file">
+            영상 파일
+            <input
+              type="file"
+              accept="video/mp4,video/webm,.mp4,.webm"
+              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+              aria-invalid={errors.file ? true : undefined}
+              aria-describedby={errors.file ? 'file-error' : undefined}
+            />
+          </label>
+        ) : (
+          <label key="url">
+            영상 URL
+            <input
+              type="url"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              aria-invalid={errors.url ? true : undefined}
+              aria-describedby={errors.url ? 'url-error' : undefined}
+            />
+          </label>
+        )}
+        {sourceType === 'UPLOADED_FILE' && errors.file && <p id="file-error">{errors.file}</p>}
+        {sourceType === 'EXTERNAL_URL' && errors.url && <p id="url-error">{errors.url}</p>}
+        <button type="submit" disabled={submitting}>
+          {submitting ? '등록 중…' : '등록'}
+        </button>
       </form>
     </section>
   )

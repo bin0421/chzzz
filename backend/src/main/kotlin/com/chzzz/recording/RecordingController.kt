@@ -1,6 +1,7 @@
 package com.chzzz.recording
 
 import com.chzzz.common.NotFoundException
+import org.springframework.core.io.Resource
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
@@ -27,13 +28,21 @@ class RecordingController(
         return RecordingDetailResponse.from(recording)
     }
 
+    /** Range 요청(206/416)과 `Accept-Ranges`는 Spring MVC가 [Resource] 본문에 대해 처리한다. */
+    @GetMapping("/{id}/video")
+    fun video(@PathVariable id: Long): ResponseEntity<Resource> {
+        val video = recordingService.findVideo(id) ?: throw NotFoundException("재생할 업로드 파일을 찾을 수 없습니다.")
+        return ResponseEntity.ok().contentType(video.mediaType).body(video.resource)
+    }
+
     @PostMapping
     fun register(
         @RequestParam(required = false) title: String?,
         @RequestParam(required = false) url: String?,
         @RequestParam(required = false) file: MultipartFile?,
     ): ResponseEntity<RecordingDetailResponse> {
-        val recording = recordingService.register(title, url, file)
+        val upload = file?.takeIf { !it.isEmpty }?.let { UploadedFileInput(it.originalFilename, it.inputStream) }
+        val recording = recordingService.register(title, url, upload)
         return ResponseEntity
             .created(URI.create("/api/recordings/${recording.id}"))
             .body(RecordingDetailResponse.from(recording))
@@ -52,7 +61,10 @@ data class RecordingDetailResponse(
             id = recording.id!!,
             title = recording.title,
             sourceType = recording.videoSource.type,
-            videoUrl = recording.videoSource.value,
+            videoUrl = when (recording.videoSource.type) {
+                VideoSourceType.EXTERNAL_URL -> recording.videoSource.value
+                VideoSourceType.UPLOADED_FILE -> "/api/recordings/${recording.id}/video"
+            },
             createdAt = recording.createdAt,
         )
     }
