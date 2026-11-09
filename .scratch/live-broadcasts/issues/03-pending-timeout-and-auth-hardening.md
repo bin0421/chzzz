@@ -28,3 +28,6 @@
 | `LivePendingTimeoutApiTest` 시간 초과 뒤에 영상 들어옴 훅이 와도 방송 중이 되지 않는다 | 상세가 `LIVE` | `onStreamAvailable`도 `findCurrent` 사용 | 없음 |
 | `LivePendingSweepTest` 조회가 없어도 주기 정리 작업이 시간 초과된 대기를 종료로 바꾼다 | 5초 기다려도 `PENDING` | `SchedulingConfig`(@EnableScheduling), `LivePendingSweeper`(`live.pending-sweep-interval`, 기본 10s)가 `expireOverduePending` 호출 | 없음 |
 | `LivePendingTimeoutApiTest` 60초가 되기 전에는 대기로 남고 송출할 수 있다 | 처음부터 green(경계 확인용으로 추가) | 없음 | 없음 |
+| `MediaMtxAuthRulesApiTest` live 다음 숫자 식별자 형식이 아닌 경로는 맞는 키로도 거부한다 (`live/01`, `live/1\n`) | 두 경로가 `200` 허용. `find`+`$`라서 앞자리 0과 끝 개행이 같은 방송으로 풀렸다(같은 방송을 다른 MediaMTX 경로로 송출 가능) | `MediaPaths.idOf`를 `matchEntire` + `[1-9]\d*`로 바꿔 정규형만 인정 | 없음 |
+| `MediaMtxAuthRulesApiTest` 나머지(키 없음·빈 키, 다른 방송의 키, 방송 중에 재송출, 없는 방송 송출·시청, 그 밖의 경로 8종, 경로 없음, 행동 6종, 대기 시청) | 처음부터 green(티켓 01 구현이 이미 거부). 거부 규칙 고정용 | 없음 | 없음 |
+| `StreamKeyExposureApiTest` 대기 상세 / 방송 중 목록·상세 / 404·400·인증 거부 응답에 송출 키와 해시가 없다 | 처음부터 green. 회귀 방지용(본문·헤더 모두 검사) | 없음 | 없음 |
