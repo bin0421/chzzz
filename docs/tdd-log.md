@@ -69,5 +69,42 @@ red → green(→ refactor) 사이클마다 한 줄씩 기록한다. 4단계까�
 | 51 | [01] 프론트 송출 `제목을 넣고 방송을 시작하면 미리보기를 WHIP으로 송출하고 방송 중이 되면 알려 준다` | `제목` 레이블 없음: 송출 화면 없음 | 미디어 어댑터 경계(인터페이스·주입·가짜), 송출 화면 `/live/new` | - |
 | 52 | [01] 프론트 시청 `방송 중이면 WHEP으로 연결해 원격 영상을 플레이어에 붙인다` | 제목 heading 없음: 시청 화면 없음 | 시청 화면 `/live/:id` | - |
 | 53 | [01] 프론트 목록 `방송 중인 라이브 방송을 배지와 함께 보여 주고 시청 화면으로 연결한다` / `헤더의 방송 시작 링크로 송출 화면에 간다` | `라이브 방송` region, `방송 시작` 링크 없음 | 방송 목록 위 라이브 섹션, 헤더 링크 | - |
+| 54 | [02] 백엔드 `LiveBroadcastEndApiTest` 송출 키로 방송 중인 라이브 방송을 종료하면 200과 종료 상태, 종료 시각을 준다 | 종료 엔드포인트가 없어 200이 아님 | `POST /api/live-broadcasts/{id}/end`, `LiveBroadcast.end`, `LiveBroadcastService.end` | - |
+| 55 | [02] 백엔드 `LiveBroadcastEndApiTest` 송출 키가 없거나 틀리면 403이고 방송은 그대로다 | 키 확인이 없어 200 | 서비스에서 `StreamKey.matches`가 아니면 `ForbiddenException`, 컨트롤러가 `Bearer ` 접두어가 있을 때만 키로 꺼냄 | - |
+| 56 | [02] 백엔드 `LiveBroadcastEndApiTest` 이미 종료된 라이브 방송을 다시 종료하면 409다 | 두 번째 종료도 200 | `end`가 false면 `ConflictException` | - |
+| 57 | [02] 백엔드 `LiveBroadcastEndApiTest` 없는 라이브 방송을 종료하면 404다 | red 없음: 01의 `find`가 이미 `NotFoundException`을 던져 처음부터 green | - | - |
+| 58 | [02] 백엔드 `MediaMtxUnavailableHookApiTest` 끊김 훅 4개(방송 중→종료, 대기→종료, 종료 후 멱등, 이상한 경로 200) | `/internal/mediamtx/unavailable`이 없어 404 | 훅 엔드포인트와 `onStreamUnavailable`(대기·방송 중이면 `end`, 아니면 무시) | - |
+| 59 | [02] 백엔드 `LiveBroadcastListOrderApiTest` 방송 중을 최근 시작순으로 먼저, 이어서 종료 중 최근 10개를 최근 종료순으로 준다 | 목록에 종료가 없음 | `findTop10ByStatusOrderByEndedAtDescIdDesc`를 방송 중 뒤에 이어 붙임 | - |
+| 60 | [02] 백엔드 `LiveBroadcastStartupCleanupApiTest` 시작할 때 대기와 방송 중으로 남은 라이브 방송을 종료로 정리한다 | 앱이 떠도 대기가 PENDING 그대로 | `ApplicationReadyEvent`에서 `endAllUnfinished` 호출하는 `LiveBroadcastStartupCleanup` | 실제 재시작에서 Tomcat이 열린 뒤 1초쯤 정리 전 상태가 보여서 `SmartInitializingSingleton`(웹 서버 시작 전)으로 옮김. 테스트는 그대로 green |
+| 61 | [02] 프론트 `LiveBroadcastEnd.test.tsx` 방송 종료를 누르면 송출을 멈추고 송출 키로 종료 API를 부르고 카메라를 끈다 | "방송 종료" 버튼 없음 | `api.endLiveBroadcast`(Bearer), 송출 화면 `ended` 단계, 송출 중지 → 종료 API → 미리보기 트랙 stop·`srcObject` 해제. 가짜 스트림에 stop을 기록하는 트랙 추가 | - |
+| 62 | [02] 프론트 `LiveBroadcastEnd.test.tsx` 송출 화면을 새로고침해도 같은 탭에서는 송출 키로 방송을 종료할 수 있다 | 다시 그린 화면에 종료 버튼 없음 | 시작 때 `{ id, streamKey }`를 sessionStorage(`chzzz.ownLiveBroadcast`)에 보관, 있으면 `resumed` 단계로 종료 버튼 표시, 종료하면 지움 | - |
+| 63 | [02] 프론트 `LiveBroadcastEnd.test.tsx` 끊김으로 이미 종료된 방송을 종료하려 하면(409) 종료된 것으로 보여 준다 | 409가 처리되지 않은 오류로 남음 | 종료 API의 409는 "이미 종료"로 보고 정상 종료와 같이 처리 | - |
+| 64 | [02] 프론트 `LiveBroadcastEnd.test.tsx` 3초마다 상세를 다시 불러와 종료로 바뀌면 연결을 닫고 종료 안내를 보여 준다 | 처음 한 번만 불러옴 | 시청 화면 3초 폴링(서버가 종료로 바꾸면 멈춤), 종료면 플레이어 대신 안내 | 가짜 타이머 아래에서 effect 정리가 늦게 돌아 `close` 단언을 `vi.waitFor`로 기다리게 함 |
+| 65 | [02] 프론트 `LiveBroadcastEnd.test.tsx` 시청 연결이 끊기면 연결을 닫고 종료 안내를 보여 준다 | 끊김 알림을 듣지 않음 | `viewing.onDisconnect` → `disconnected` 상태로 종료 안내, 시청 연결 닫음. 종료 시각을 받도록 폴링은 서버가 종료로 바꿀 때까지 계속 | - |
+| 66 | [02] 프론트 `LiveBroadcastEnd.test.tsx` 종료된 방송을 처음 열면 연결하지 않고 종료 안내와 시작·종료 시각을 보여 준다 | 시작·종료 시각 표시 없음 | 종료 안내 아래 `<dl>`에 시작·종료 `<time>` | - |
+| 67 | [02] 프론트 `LiveBroadcastEnd.test.tsx` 종료된 라이브 방송에 종료 배지와 종료 시각을 보여 주고 5초마다 다시 불러온다 | 종료 항목에도 "방송 중" 배지 | 상태별 배지(종료/방송 중)와 시각(종료 시각/시작 시각), 5초 폴링 | - |
+| 68 | [03] 백엔드 `LivePendingTimeoutApiTest` 대기가 60초를 넘으면 상세 조회 때 종료가 되고 종료 시각이 남는다 | 시계를 61초 옮겨도 `status`가 `PENDING` | `LiveBroadcast.expireIfPendingTooLong`(종료 시각 = 생성 + 시간 초과), `live.pending-timeout=${LIVE_PENDING_TIMEOUT:60s}`, `find`에서 판정 | 테스트용 `MutableClock`(@Primary)을 `MutableClockConfiguration`으로 분리 |
+| 69 | [03] 백엔드 `LivePendingTimeoutApiTest` 대기가 60초를 넘으면 목록 조회 때 종료로 저장된다 | 목록 조회 뒤 DB가 `PENDING`/`ended_at` null | `expireOverduePending()`(생성 시각 기준 조회 후 일괄 판정)을 `list`에서 먼저 호출 | 없음. 종료 항목이 목록에 보이는 것은 02 범위라 저장 상태로 확인 |
+| 70 | [03] 백엔드 `LivePendingTimeoutApiTest` 시간 초과된 대기에는 맞는 송출 키로도 송출할 수 없다 | 인증 훅이 `200` | `authorize`가 판정 후 조회(`findCurrent`)를 쓰게 함 | `find`도 `findCurrent`로 합침 |
+| 71 | [03] 백엔드 `LivePendingTimeoutApiTest` 시간 초과 뒤에 영상 들어옴 훅이 와도 방송 중이 되지 않는다 | 상세가 `LIVE` | `onStreamAvailable`도 `findCurrent` 사용 | 없음 |
+| 72 | [03] 백엔드 `LivePendingSweepTest` 조회가 없어도 주기 정리 작업이 시간 초과된 대기를 종료로 바꾼다 | 5초 기다려도 `PENDING` | `SchedulingConfig`(@EnableScheduling), `LivePendingSweeper`(`live.pending-sweep-interval`, 기본 10s)가 `expireOverduePending` 호출 | 없음 |
+| 73 | [03] 백엔드 `LivePendingTimeoutApiTest` 60초가 되기 전에는 대기로 남고 송출할 수 있다 | 처음부터 green(경계 확인용으로 추가) | 없음 | 없음 |
+| 74 | [03] 백엔드 `MediaMtxAuthRulesApiTest` live 다음 숫자 식별자 형식이 아닌 경로는 맞는 키로도 거부한다 (`live/01`, `live/1\n`) | 두 경로가 `200` 허용. `find`+`$`라서 앞자리 0과 끝 개행이 같은 방송으로 풀렸다(같은 방송을 다른 MediaMTX 경로로 송출 가능) | `MediaPaths.idOf`를 `matchEntire` + `[1-9]\d*`로 바꿔 정규형만 인정 | 없음 |
+| 75 | [03] 백엔드 `MediaMtxAuthRulesApiTest` 나머지(키 없음·빈 키, 다른 방송의 키, 방송 중에 재송출, 없는 방송 송출·시청, 그 밖의 경로 8종, 경로 없음, 행동 6종, 대기 시청) | 처음부터 green(티켓 01 구현이 이미 거부). 거부 규칙 고정용 | 없음 | 없음 |
+| 76 | [03] 백엔드 `StreamKeyExposureApiTest` 대기 상세 / 방송 중 목록·상세 / 404·400·인증 거부 응답에 송출 키와 해시가 없다 | 처음부터 green. 회귀 방지용(본문·헤더 모두 검사) | 없음 | 없음 |
+| 77 | [03] 프론트 `LiveBroadcastPending.test.tsx` 대기면 "곧 방송이 시작됩니다"를 보여 주고, 다시 불러와 방송 중이 되면 시청 연결을 시작한다 | 문구가 없음(상세를 한 번만 불러오고 폴링도 없음) | 시청 화면이 상세를 3초마다 다시 불러오고(종료면 멈춤) 대기면 `role="status"` 문구 표시. 기존 "방송 중이면 시청 연결" 효과가 상태 변화에 반응 | 없음 |
+| 78 | [04] 프론트 제목이 비어 있으면 서버에 보내지 않고 입력란 옆에 안내한다 | 검증 없이 `POST` 요청을 보냄 | `validateTitle` 공용 함수로 클라이언트 검증, `aria-describedby` 안내 | 녹화방송 등록 화면도 `validateTitle` 사용 |
+| 79 | [04] 프론트 서버가 400으로 제목을 거절하면 그 메시지를 입력란 옆에 보여 주고 다시 시작할 수 있다 | `ApiError`를 잡지 않아 처리되지 않은 오류 | 시작 API 실패 시 `title` 필드 오류 표시, 단계를 `ready`로 되돌림 | - |
+| 80 | [04] 프론트 전면 카메라로 미리보기를 열고, 후면을 고르면 이전 카메라를 끄고 후면으로 다시 연다 | 카메라 선택 라디오가 없음 | `facing` 상태, 바뀌면 이전 트랙을 끄고 `openPreview(facing)` 다시 호출 | - |
+| 81 | [04] 프론트 방송을 시작한 뒤에는 카메라를 바꿀 수 없다 | (fieldset `disabled`를 빼고 확인) 연결 중에 라디오가 활성 | 단계가 `ready`가 아니면 카메라 fieldset 비활성 | - |
+| 82 | [04] 프론트 미리보기가 permission-denied/no-device/insecure-context 오류로 실패하면 이유와 해결 방법을 보여 준다 | 안내(`role="alert"`)가 없음 | `MediaAccessError`와 이유별 안내 문구, 실제 어댑터의 DOMException 매핑 | - |
+| 83 | [04] 프론트 방송 시작 후 미디어 서버에 연결하지 못하면 네트워크·방화벽을 확인하라고 안내하고 다시 시작할 수 있다 | `publish` 실패가 처리되지 않음 | `publish` 실패 시 연결 실패 안내, 단계를 `ready`로 | - |
+| 84 | [04] 프론트 영상이 서버에 닿지 못해 방송 중이 되기 전에 종료되면 송출을 멈추고 같은 안내를 보여 준다 | 대기에서 종료로 바뀌어도 계속 상태 확인 | 상태 확인이 `ENDED`면 송출 중지 + 연결 실패 안내 | 안내 두 개를 `Guide` 컴포넌트로 합침 |
+| 85 | [04] 프론트 방송 중이 되면 다른 기기로 옮길 수 있게 시청 화면 주소를 링크로 보여 준다 | 링크가 없음 | 방송 중 화면에 `origin + /live/{id}` 링크 | - |
+| 86 | [04] 프론트 자동재생으로 소리가 막히면 음소거로 재생하고, 소리 켜기를 누르면 소리가 켜진다 / 소리와 함께 재생되면 소리 켜기 버튼을 보여 주지 않는다 | `startPlayback`이 호출되지 않음 | 어댑터 `startPlayback` 추가, 결과가 `muted`면 "소리 켜기" 버튼 | - |
+| 87 | [04] 프론트 라이브 영상에 연결하지 못하면 안내를 보여 준다 | `watch` 실패가 처리되지 않음 | `watch` 실패 시 연결 실패 안내 | - |
+| 88 | [04] 프론트 없는 라이브 방송이면 찾을 수 없음과 목록 링크를 보여 준다 | 404가 처리되지 않아 계속 "불러오는 중" | 404면 "찾을 수 없음"과 목록 링크, 그 밖의 실패는 불러오기 실패 안내 | - |
 
 참고: #51~#53의 프론트 테스트 네 개는 화면이 하나도 없는 상태에서 함께 작성해 동시에 red를 확인했다(골격 티켓이라 화면 셋을 한 번에 세움).
+
+참고: [05]는 설정(compose·Caddy·nginx)만 바꿔 TDD 사이클이 없다. 병합할 때 [04]의 송출 화면 테스트가 [02]의 탭 저장소(송출 키)를 이어받아 깨져서, 테스트 공통 정리에 `sessionStorage.clear()`를 넣었다.
