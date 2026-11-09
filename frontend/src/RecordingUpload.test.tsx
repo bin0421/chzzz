@@ -48,6 +48,33 @@ describe('녹화방송 등록: 업로드 파일', () => {
     expect(body.has('url')).toBe(false)
   })
 
+  it('서버가 파일을 거절하면 그 이유를 파일 입력란 옆에 보여 준다', async () => {
+    stubFetch([
+      {
+        method: 'POST',
+        path: '/api/recordings',
+        status: 400,
+        body: {
+          status: 400,
+          detail: '입력값을 확인해 주세요.',
+          errors: [{ field: 'file', message: 'mp4 또는 webm 파일만 올릴 수 있습니다.' }],
+        },
+      },
+    ])
+    const user = userEvent.setup()
+    renderApp('/recordings/new')
+
+    await user.type(screen.getByLabelText('제목'), '형식이 틀린 방송')
+    await user.click(screen.getByRole('radio', { name: '업로드 파일' }))
+    await user.upload(screen.getByLabelText('영상 파일'), new File(['v'], 'clip.mp4', { type: 'video/mp4' }))
+    await user.click(screen.getByRole('button', { name: '등록' }))
+
+    const fileInput = await screen.findByLabelText('영상 파일')
+    expect(await screen.findByText('mp4 또는 webm 파일만 올릴 수 있습니다.')).toBeInTheDocument()
+    expect(fileInput).toHaveAccessibleDescription('mp4 또는 webm 파일만 올릴 수 있습니다.')
+    expect(screen.getByRole('alert')).not.toHaveTextContent('mp4 또는 webm 파일만 올릴 수 있습니다.')
+  })
+
   it('업로드가 끝날 때까지 등록 버튼이 비활성화된다', async () => {
     let finishUpload: (response: Response) => void = () => {}
     vi.stubGlobal(

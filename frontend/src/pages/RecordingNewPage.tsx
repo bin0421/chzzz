@@ -7,7 +7,7 @@ type FieldErrors = Partial<Record<string, string>>
 const TITLE_MAX_LENGTH = 100
 
 /** 입력란 옆에 표시하는 필드. 그 밖의 필드 오류(예: source)는 폼 위 알림에 모은다. */
-const INPUT_FIELDS = ['title', 'url']
+const INPUT_FIELDS = ['title', 'url', 'file']
 
 function validate(title: string, sourceType: VideoSourceType, url: string): FieldErrors {
   const errors: FieldErrors = {}
@@ -126,6 +126,8 @@ export default function RecordingNewPage() {
               type="file"
               accept="video/mp4,video/webm,.mp4,.webm"
               onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+              aria-invalid={errors.file ? true : undefined}
+              aria-describedby={errors.file ? 'file-error' : undefined}
             />
           </label>
         ) : (
@@ -140,6 +142,7 @@ export default function RecordingNewPage() {
             />
           </label>
         )}
+        {sourceType === 'UPLOADED_FILE' && errors.file && <p id="file-error">{errors.file}</p>}
         {sourceType === 'EXTERNAL_URL' && errors.url && <p id="url-error">{errors.url}</p>}
         <button type="submit" disabled={submitting}>
           {submitting ? '등록 중…' : '등록'}
