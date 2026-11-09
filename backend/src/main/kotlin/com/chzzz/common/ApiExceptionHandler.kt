@@ -20,4 +20,16 @@ class ApiExceptionHandler {
         ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, e.message ?: "찾을 수 없습니다.").apply {
             title = "찾을 수 없음"
         }
+
+    @ExceptionHandler(ForbiddenException::class)
+    fun handleForbidden(e: ForbiddenException): ProblemDetail =
+        ProblemDetail.forStatusAndDetail(HttpStatus.FORBIDDEN, e.message ?: "권한이 없습니다.").apply {
+            title = "권한 없음"
+        }
+
+    @ExceptionHandler(ConflictException::class)
+    fun handleConflict(e: ConflictException): ProblemDetail =
+        ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, e.message ?: "현재 상태에서는 할 수 없습니다.").apply {
+            title = "상태 충돌"
+        }
 }

@@ -76,6 +76,27 @@ li {
   font-size: 0.8rem;
 }
 
+/* 라이브 방송 상태 배지 */
+.badge.live {
+  border-color: #d93025;
+  background: #d93025;
+  color: #fff;
+  font-weight: 600;
+}
+
+.badge.ended {
+  color: var(--muted, #666);
+}
+
+.live-preview {
+  margin-bottom: 1rem;
+  transform: scaleX(-1); /* 전면 카메라 미리보기는 거울처럼 보여 준다 */
+}
+
+.live-status {
+  margin: 0.5rem 0 1rem;
+}
+
 .empty {
   padding: 2rem 0;
   text-align: center;

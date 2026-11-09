@@ -1,5 +1,7 @@
 # 전체 실행(채점용): docker compose up --build   → http://localhost:${APP_PORT:-3000}
-# 개발 실행(DB만):    docker compose up -d db       → 서비스 이름을 지정하면 그 서비스(와 의존 서비스)만 뜬다
+# 개발 실행:          docker compose up -d db mediamtx → 서비스 이름을 지정하면 그 서비스(와 의존 서비스)만 뜬다
+#                     호스트에서 bootRun하는 백엔드를 MediaMTX가 부르도록 MEDIAMTX_BACKEND_URL을 지정한다
+#                     (예: MEDIAMTX_BACKEND_URL=http://host.docker.internal:8080)
 # 값은 루트 .env에서 바꿀 수 있고(.env.example 참고), .env가 없으면 아래 기본값을 쓴다.
 services:
   db:
@@ -17,6 +19,28 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+
+  # 라이브 방송 미디어 서버 (WebRTC WHIP/WHEP, ADR-0003)
+  mediamtx:
+    image: bluenviron/mediamtx:1.21.3-ffmpeg
+    volumes:
+      - ./mediamtx/mediamtx.yml:/mediamtx.yml:ro
+    environment:
+      # 인증·훅으로 부를 백엔드. 전체 실행은 compose 내부 backend, 개발 실행은 호스트의 bootRun
+      MEDIAMTX_BACKEND_URL: ${MEDIAMTX_BACKEND_URL:-http://backend:8080}
+      MTX_AUTHHTTPADDRESS: ${MEDIAMTX_BACKEND_URL:-http://backend:8080}/internal/mediamtx/auth
+      # 브라우저·휴대폰에 ICE 후보로 알릴 주소와 미디어 포트 (호스트와 컨테이너 포트를 같게 둔다)
+      MTX_WEBRTCADDITIONALHOSTS: ${PUBLIC_HOST:-localhost}
+      MTX_WEBRTCLOCALUDPADDRESS: :${WEBRTC_PORT:-8189}
+      MTX_WEBRTCLOCALTCPADDRESS: :${WEBRTC_PORT:-8189}
+    ports:
+      - "${WEBRTC_PORT:-8189}:${WEBRTC_PORT:-8189}/udp"
+      - "${WEBRTC_PORT:-8189}:${WEBRTC_PORT:-8189}/tcp"
+      # WHIP/WHEP HTTP. 개발 실행의 Vite가 localhost로 부른다. 밖에서는 프록시(/media)를 거친다
+      - "127.0.0.1:8889:8889"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
 
   backend:
     build: ./backend

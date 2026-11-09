@@ -11,6 +11,31 @@ export type RecordingDetail = RecordingSummary & {
   videoUrl: string
 }
 
+export type LiveBroadcastStatus = 'PENDING' | 'LIVE' | 'ENDED'
+
+export type LiveBroadcastSummary = {
+  id: number
+  title: string
+  status: LiveBroadcastStatus
+  startedAt: string | null
+  endedAt: string | null
+}
+
+export type LiveBroadcastDetail = LiveBroadcastSummary & {
+  createdAt: string
+  whepUrl: string
+}
+
+/** 시작 응답에만 송출 키와 WHIP 주소가 들어 있다. */
+export type StartedLiveBroadcast = {
+  id: number
+  title: string
+  status: LiveBroadcastStatus
+  streamKey: string
+  whipUrl: string
+  createdAt: string
+}
+
 export type FieldError = { field: string; message: string }
 
 /** 서버가 RFC 9457 Problem Details로 거절한 요청. */
@@ -43,5 +68,18 @@ export const api = {
   },
   getRecording(id: string) {
     return request<RecordingDetail>(`/api/recordings/${id}`)
+  },
+  listLiveBroadcasts() {
+    return request<LiveBroadcastSummary[]>('/api/live-broadcasts')
+  },
+  startLiveBroadcast(title: string) {
+    return request<StartedLiveBroadcast>('/api/live-broadcasts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title }),
+    })
+  },
+  getLiveBroadcast(id: string | number) {
+    return request<LiveBroadcastDetail>(`/api/live-broadcasts/${id}`)
   },
 }

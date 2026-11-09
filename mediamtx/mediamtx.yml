@@ -1,0 +1,42 @@
+# chzzz용 MediaMTX 설정 (ADR-0003)
+# WebRTC(WHIP 송출, WHEP 시청)만 켜고, 송출·시청 허가와 상태 변화는 백엔드가 판단한다.
+# 환경에 따라 바뀌는 값은 docker-compose.yml이 MTX_* 환경변수로 덮어쓴다.
+
+logLevel: info
+
+# 쓰지 않는 기능은 모두 끈다.
+api: no
+metrics: no
+pprof: no
+playback: no
+rtsp: no
+rtmp: no
+hls: no
+srt: no
+moq: no
+
+# WebRTC
+webrtc: yes
+webrtcAddress: :8889
+webrtcLocalUDPAddress: :8189
+webrtcLocalTCPAddress: :8189
+# 컨테이너 내부 IP는 휴대폰·브라우저가 닿을 수 없으므로 알리지 않는다.
+# 대신 MTX_WEBRTCADDITIONALHOSTS(= PUBLIC_HOST)를 ICE 후보로 알린다.
+webrtcIPsFromInterfaces: no
+webrtcAdditionalHosts: [localhost]
+
+# 인증: 매 송출·시청마다 백엔드에 묻는다 (MTX_AUTHHTTPADDRESS로 주소 지정).
+authMethod: http
+authHTTPAddress: http://backend:8080/internal/mediamtx/auth
+authHTTPExclude: []
+
+pathDefaults:
+  # 송출 중인 라이브 방송을 다른 송출이 가로채지 못하게 한다.
+  overridePublisher: no
+  # 영상이 들어오면/끊기면 백엔드에 알린다. MEDIAMTX_BACKEND_URL은 compose가 넘긴다.
+  runOnAvailable: wget -q -O /dev/null --post-data= ${MEDIAMTX_BACKEND_URL}/internal/mediamtx/available?path=${MTX_PATH}
+  runOnUnavailable: wget -q -O /dev/null --post-data= ${MEDIAMTX_BACKEND_URL}/internal/mediamtx/unavailable?path=${MTX_PATH}
+
+# 라이브 방송 경로(live/{id})만 받는다. 그 밖의 경로는 존재하지 않는다.
+paths:
+  '~^live/\d+$': {}

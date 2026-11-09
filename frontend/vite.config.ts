@@ -7,6 +7,11 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': process.env.VITE_API_PROXY_TARGET ?? 'http://localhost:8080',
+      // 라이브 방송 WHIP/WHEP: /media 접두어를 떼서 MediaMTX WebRTC HTTP 포트로 넘긴다
+      '/media': {
+        target: process.env.VITE_MEDIA_PROXY_TARGET ?? 'http://localhost:8889',
+        rewrite: (path) => path.replace(/^\/media/, ''),
+      },
     },
   },
   test: {
