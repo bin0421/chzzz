@@ -17,9 +17,13 @@ class VideoSource(
 ) {
     companion object {
         fun externalUrl(url: String) = VideoSource(VideoSourceType.EXTERNAL_URL, url)
+
+        /** [storedName]은 서비스가 정한 저장 이름(UUID + 확장자)이다. */
+        fun uploadedFile(storedName: String) = VideoSource(VideoSourceType.UPLOADED_FILE, storedName)
     }
 }
 
 enum class VideoSourceType {
     EXTERNAL_URL,
+    UPLOADED_FILE,
 }
