@@ -3,7 +3,9 @@ import { useParams } from 'react-router'
 import { api, type LiveBroadcastDetail } from '../api'
 import { useMediaAdapter } from '../media/MediaAdapter'
 
-/** 시청 화면: 방송 중인 라이브 방송을 WHEP으로 받아 재생한다. */
+const DETAIL_POLL_MS = 3000
+
+/** 시청 화면:방송 중인 라이브 방송을 WHEP으로 받아 재생한다. */
 export default function LiveBroadcastWatchPage() {
   const { id } = useParams()
   const media = useMediaAdapter()
@@ -11,9 +13,23 @@ export default function LiveBroadcastWatchPage() {
   const [stream, setStream] = useState<MediaStream | null>(null)
   const playerRef = useRef<HTMLVideoElement>(null)
 
+  const ended = broadcast?.status === 'ENDED'
+
+  // 상세를 3초마다 다시 불러와 대기 → 방송 중 → 종료 변화를 따라간다. 종료되면 멈춘다.
   useEffect(() => {
-    if (id) api.getLiveBroadcast(id).then(setBroadcast)
-  }, [id])
+    if (!id || ended) return
+    let cancelled = false
+    const load = () =>
+      api.getLiveBroadcast(id).then((loaded) => {
+        if (!cancelled) setBroadcast(loaded)
+      })
+    load()
+    const timer = setInterval(load, DETAIL_POLL_MS)
+    return () => {
+      cancelled = true
+      clearInterval(timer)
+    }
+  }, [id, ended])
 
   useEffect(() => {
     if (broadcast?.status !== 'LIVE') return
@@ -39,6 +55,7 @@ export default function LiveBroadcastWatchPage() {
   return (
     <article>
       <h1>{broadcast.title}</h1>
+      {broadcast.status === 'PENDING' && <p role="status">곧 방송이 시작됩니다</p>}
       <video ref={playerRef} className="live-player" data-testid="live-player" autoPlay playsInline controls />
     </article>
   )
