@@ -1,0 +1,71 @@
+# chzzz
+
+제출용 과제: 로그인 없이 녹화방송을 등록하고 시청하는 서비스. 확정된 내용은 아래 **과제** 섹션에 채운다.
+
+## 소통
+
+- 사용자에게는 항상 한국어로 답한다.
+
+## 결정
+
+- 구조적 결정(라이브러리 추가, 아키텍처, 디렉터리 구조, 과제 요구사항 해석)은 선택지와 추천안을 제시하고, 사용자가 고른 뒤에 진행한다.
+- 이유: 제출용 과제라서 사용자가 모든 설계 선택을 직접 설명할 수 있어야 한다.
+
+## 개발: TDD
+
+- 기능 추가와 버그 수정은 red-green-refactor로 진행한다. `tdd` 스킬을 따른다.
+  1. 실패하는 테스트를 먼저 쓰고 **red**를 눈으로 확인한다.
+  2. 테스트를 통과시키는 최소한의 코드를 쓴다.
+  3. 전체 테스트가 **green**인 상태에서 리팩터한다.
+- 완료 조건: 새 테스트가 처음에 red였고, 지금 전체 테스트가 green이며, 그 사이클이 `docs/tdd-log.md`에 한 줄로 기록되어 있다.
+
+## DB 스키마
+
+- 스키마 변경은 항상 새 Flyway 마이그레이션(`V<n>__<설명>.sql`)으로 추가한다. 이미 적용된 마이그레이션 파일은 고치지 않는다. 단계가 바뀌어도 기존 데이터가 남아야 하기 때문이다.
+
+## 발표 기록
+
+최종 발표(4단계 완료 후 PPT)의 재료를 작업하면서 남긴다.
+
+- 되돌리기 어렵고 트레이드오프가 있었던 결정은 `docs/adr/`에 ADR로 남긴다.
+- 단계를 마칠 때 `docs/presentation-notes.md`의 해당 단계 섹션(결정, 결과·수치, 어려웠던 점)을 채운다.
+- 단계 완료 시 git 태그 `stage-<n>`은 사용자가 요청할 때 붙인다. README는 최종본 기준으로 갱신하고 "단계별 구현 내역" 섹션을 둔다.
+
+## 커밋
+
+- 커밋은 사용자가 요청할 때만 한다. 커밋 메시지는 한국어로 쓴다.
+- 커밋 하나에는 논리적 변경 하나만 담고, 그 시점에 전체 테스트가 green이어야 한다.
+
+## 과제
+
+- 요구사항:
+  - 녹화방송의 제목과 영상 출처(업로드 파일 또는 외부 URL)를 등록한다.
+  - 녹화방송 목록·상세 화면과 영상 플레이어를 제공한다.
+  - 녹화방송 메타데이터를 영속 저장하고 조회한다. 재시작 후에도 남아야 한다.
+  - 로그인 없이 등록·조회 화면과 서버 기능을 이용한다.
+  - README에 실행 방법·환경변수 예시·구현 범위·직접 확인 절차를 적는다.
+- 범위: 등록·목록·상세·재생만 구현한다. 수정·삭제·검색·페이지네이션·썸네일은 범위 밖이며 README에 명시한다. 외부 URL은 `<video>`로 바로 재생되는 영상 파일 주소만 지원한다.
+- 기술 스택: 백엔드 Spring Boot 4.1.x + Kotlin, JDK 21, Gradle Kotlin DSL(wrapper). 프론트엔드 React + Vite + TypeScript, React Router, `fetch`. DB PostgreSQL(Docker Compose). 업로드 파일은 로컬 디스크(`RECORDING_STORAGE_DIR`)에 두고 Range 요청으로 스트리밍한다.
+- 구조: 루트에 `backend/`, `frontend/`, `docker-compose.yml`, `README.md`.
+- 실행: `docker compose up --build`로 전체 실행(채점용)과, DB만 compose + `./gradlew bootRun` + `npm run dev`(개발용)를 모두 지원한다.
+- 테스트: 백엔드 JUnit 5 + Spring Boot Test + Testcontainers(PostgreSQL). 프론트 Vitest + React Testing Library. E2E 자동화 대신 README의 직접 확인 절차.
+- 진행: 과제는 4단계로 진행하며 현재 1단계다. 각 단계의 기능은 그 단계에서만 구현한다.
+  1. 녹화방송 등록·시청 (TDD)
+  2. 라이브 방송 송출
+  3. 인증·인가, 댓글
+  4. 도네이션
+- 제출 형식: 4단계까지 끝난 최종본을 GitHub 저장소에 올리고, 같은 최종본으로 PPT 발표를 한다. 마감: (추가 예정)
+
+## Agent skills
+
+### Issue tracker
+
+이슈와 스펙은 로컬 마크다운으로 `.scratch/`에 둔다. 최종 작업본은 GitHub에 제출한다. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+기본 다섯 역할(`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`)을 이름 그대로 쓴다. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+단일 컨텍스트: 루트 `GLOSSARY.md` + `docs/adr/`. See `docs/agents/domain.md`.

@@ -1,0 +1,24 @@
+# 런타임 데이터 (업로드 파일, 로컬 DB 등)
+data/
+
+# Gradle / Kotlin
+.gradle/
+build/
+*.class
+.kotlin/
+
+# Node / Vite
+node_modules/
+dist/
+*.local
+
+# 환경변수
+.env
+!.env.example
+
+# IDE / OS
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
