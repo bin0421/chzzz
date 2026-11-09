@@ -1,4 +1,5 @@
-# 전체 실행(채점용): docker compose up --build   → http://localhost:${APP_PORT:-3000}
+# 전체 실행(채점용): docker compose up --build   → PC: http://localhost:${APP_PORT:-3000}
+#                                                 휴대폰 등 다른 기기: https://${PUBLIC_HOST}:${HTTPS_PORT:-8443}
 # 개발 실행:          docker compose up -d db mediamtx → 서비스 이름을 지정하면 그 서비스(와 의존 서비스)만 뜬다
 #                     호스트에서 bootRun하는 백엔드를 MediaMTX가 부르도록 MEDIAMTX_BACKEND_URL을 지정한다
 #                     (예: MEDIAMTX_BACKEND_URL=http://host.docker.internal:8080)
@@ -40,6 +41,12 @@ services:
       - "127.0.0.1:8889:8889"
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    # 개발 실행에서 단독으로 뜨도록 backend에 의존하지 않는다. WebRTC HTTP 포트가 열리면 healthy
+    healthcheck:
+      test: ["CMD", "nc", "-z", "127.0.0.1", "8889"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
     restart: unless-stopped
 
   backend:
@@ -53,6 +60,8 @@ services:
       # 업로드 폴더는 아래 uploads 볼륨이 마운트된 컨테이너 안 경로로 고정한다
       RECORDING_STORAGE_DIR: /app/data/uploads
       RECORDING_MAX_UPLOAD_SIZE: ${RECORDING_MAX_UPLOAD_SIZE:-500MB}
+      # 대기 상태의 라이브 방송이 송출 없이 이 시간을 넘기면 종료로 정리한다
+      LIVE_PENDING_TIMEOUT: ${LIVE_PENDING_TIMEOUT:-60s}
     volumes:
       - uploads:/app/data/uploads
     depends_on:
@@ -70,6 +79,8 @@ services:
     build: ./frontend
     environment:
       BACKEND_URL: http://backend:8080
+      # /media/ 요청(WHIP/WHEP)을 넘길 MediaMTX WebRTC HTTP 주소
+      MEDIAMTX_URL: http://mediamtx:8889
       # nginx 요청 본문 한도를 백엔드 업로드 한도와 같은 값으로 맞춘다
       RECORDING_MAX_UPLOAD_SIZE: ${RECORDING_MAX_UPLOAD_SIZE:-500MB}
     ports:
@@ -77,8 +88,46 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+      # nginx는 시작할 때 프록시 대상 이름을 찾으므로 mediamtx가 먼저 떠 있어야 한다
+      mediamtx:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  # 휴대폰 접속용 HTTPS 입구 (ADR-0004). 로컬 CA로 서명한 인증서로 https://PUBLIC_HOST:HTTPS_PORT를 연다.
+  # /media/*는 MediaMTX로, 나머지는 frontend(nginx)로 보낸다. 설정은 caddy/Caddyfile
+  caddy:
+    image: caddy:2.11.7-alpine
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # 로컬 CA와 인증서를 보관해 재시작해도 같은 인증서를 쓴다(휴대폰에서 경고를 다시 넘기지 않아도 된다)
+      - caddy-data:/data
+      - caddy-config:/config
+    environment:
+      PUBLIC_HOST: ${PUBLIC_HOST:-localhost}
+      HTTPS_PORT: ${HTTPS_PORT:-8443}
+    ports:
+      # 인증서의 주소와 포트가 브라우저 주소창과 같아야 하므로 호스트와 컨테이너 포트를 같게 둔다
+      - "${HTTPS_PORT:-8443}:${HTTPS_PORT:-8443}"
+    depends_on:
+      frontend:
+        condition: service_healthy
+      mediamtx:
+        condition: service_healthy
+    healthcheck:
+      # Caddy 관리 API(컨테이너 안 localhost:2019)가 응답하면 설정을 읽고 떠 있는 것이다
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:2019/config/"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
     restart: unless-stopped
 
 volumes:
   db-data:
   uploads:
+  caddy-data:
+  caddy-config:
