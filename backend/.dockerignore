@@ -1,0 +1,8 @@
+.gradle/
+.kotlin/
+build/
+bin/
+out/
+.idea/
+*.iml
+HELP.md

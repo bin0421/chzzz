@@ -1,0 +1,25 @@
+#!/bin/sh
+# RECORDING_MAX_UPLOAD_SIZE(Spring DataSize 형식: 500MB, 1GB, 1048576 등)를
+# nginx client_max_body_size 형식(500m, 1g, 1048576)으로 바꿔 NGINX_CLIENT_MAX_BODY_SIZE에 넣는다.
+# nginx 공식 이미지의 entrypoint가 *.envsh를 source하므로, 여기서 export한 값을 템플릿 envsubst가 쓴다.
+
+size=$(printf '%s' "${RECORDING_MAX_UPLOAD_SIZE:-500MB}" | tr -d ' ' | tr '[:lower:]' '[:upper:]')
+number=${size%%[!0-9]*}
+unit=${size#"$number"}
+
+case "$unit" in
+  ""|B)  converted="$number" ;;
+  KB)    converted="${number}k" ;;
+  MB)    converted="${number}m" ;;
+  GB)    converted="${number}g" ;;
+  TB)    converted="$((number * 1024))g" ;;
+  *)     converted="" ;;
+esac
+
+if [ -z "$number" ] || [ -z "$converted" ]; then
+  echo "15-upload-size.envsh: RECORDING_MAX_UPLOAD_SIZE='${RECORDING_MAX_UPLOAD_SIZE}' 형식을 알 수 없다 (예: 500MB)" >&2
+  exit 1
+fi
+
+export NGINX_CLIENT_MAX_BODY_SIZE="$converted"
+echo "15-upload-size.envsh: client_max_body_size=${NGINX_CLIENT_MAX_BODY_SIZE} (RECORDING_MAX_UPLOAD_SIZE=${RECORDING_MAX_UPLOAD_SIZE:-500MB})"

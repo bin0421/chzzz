@@ -1,3 +1,6 @@
+# 전체 실행(채점용): docker compose up --build   → http://localhost:${APP_PORT:-3000}
+# 개발 실행(DB만):    docker compose up -d db       → 서비스 이름을 지정하면 그 서비스(와 의존 서비스)만 뜬다
+# 값은 루트 .env에서 바꿀 수 있고(.env.example 참고), .env가 없으면 아래 기본값을 쓴다.
 services:
   db:
     image: postgres:17-alpine
@@ -15,5 +18,43 @@ services:
       timeout: 3s
       retries: 10
 
+  backend:
+    build: ./backend
+    environment:
+      # 컨테이너 안에서는 DB를 서비스 이름(db)으로 찾는다
+      DB_URL: jdbc:postgresql://db:5432/${DB_NAME:-chzzz}
+      DB_USERNAME: ${DB_USERNAME:-chzzz}
+      DB_PASSWORD: ${DB_PASSWORD:-chzzz}
+      SERVER_PORT: "8080"
+      # 업로드 폴더는 아래 uploads 볼륨이 마운트된 컨테이너 안 경로로 고정한다
+      RECORDING_STORAGE_DIR: /app/data/uploads
+      RECORDING_MAX_UPLOAD_SIZE: ${RECORDING_MAX_UPLOAD_SIZE:-500MB}
+    volumes:
+      - uploads:/app/data/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/actuator/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    environment:
+      BACKEND_URL: http://backend:8080
+      # nginx 요청 본문 한도를 백엔드 업로드 한도와 같은 값으로 맞춘다
+      RECORDING_MAX_UPLOAD_SIZE: ${RECORDING_MAX_UPLOAD_SIZE:-500MB}
+    ports:
+      - "${APP_PORT:-3000}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   db-data:
+  uploads:
