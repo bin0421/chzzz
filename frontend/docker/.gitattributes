@@ -1,0 +1,2 @@
+# 컨테이너 안에서 sh로 실행되므로 Windows에서 체크아웃해도 LF를 유지한다
+* text eol=lf
