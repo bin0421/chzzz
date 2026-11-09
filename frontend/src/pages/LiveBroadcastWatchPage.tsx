@@ -6,7 +6,7 @@ import { useMediaAdapter } from '../media/MediaAdapter'
 
 const DETAIL_POLL_MS = 3000
 
-/** 시청 화면: 방송 중인 라이브 방송을 WHEP으로 받아 재생하고, 종료되면 안내한다. */
+/** 시청 화면: 대기면 곧 시작한다고 안내하고, 방송 중이면 WHEP으로 받아 재생하고, 종료되면 안내한다. */
 export default function LiveBroadcastWatchPage() {
   const { id } = useParams()
   const media = useMediaAdapter()
@@ -19,6 +19,7 @@ export default function LiveBroadcastWatchPage() {
   const ended = endedOnServer || disconnected
   const watching = broadcast?.status === 'LIVE' && !disconnected
 
+  // 상세를 3초마다 다시 불러와 대기 → 방송 중 → 종료 변화를 따라간다.
   // 종료 시각을 받아 오도록, 끊긴 뒤에도 서버가 종료로 바꿀 때까지는 계속 불러온다.
   useEffect(() => {
     if (!id || endedOnServer) return
@@ -70,7 +71,10 @@ export default function LiveBroadcastWatchPage() {
           </dl>
         </>
       ) : (
-        <video ref={playerRef} className="live-player" data-testid="live-player" autoPlay playsInline controls />
+        <>
+          {broadcast.status === 'PENDING' && <p role="status">곧 방송이 시작됩니다</p>}
+          <video ref={playerRef} className="live-player" data-testid="live-player" autoPlay playsInline controls />
+        </>
       )}
     </article>
   )
