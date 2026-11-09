@@ -1,0 +1,32 @@
+# nginx 공식 이미지가 시작할 때 ${...} 환경변수를 채워 /etc/nginx/conf.d/default.conf로 만든다.
+server {
+    listen 80;
+    server_name _;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # 업로드 한도: 백엔드의 RECORDING_MAX_UPLOAD_SIZE와 같은 값 (15-upload-size.envsh가 변환)
+    client_max_body_size ${NGINX_CLIENT_MAX_BODY_SIZE};
+
+    location /api/ {
+        proxy_pass ${BACKEND_URL};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # 큰 업로드를 nginx 디스크에 다 받은 뒤 넘기지 않고 바로 흘려보낸다
+        proxy_request_buffering off;
+        # 영상 스트리밍(Range 응답)을 버퍼링하지 않고 바로 흘려보낸다
+        proxy_buffering off;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+    }
+
+    # SPA 라우트(/recordings/1 등)는 index.html로 돌려 React Router가 처리한다
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}

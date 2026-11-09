@@ -16,8 +16,17 @@ class RecordingService(
     private val recordingRepository: RecordingRepository,
     private val uploadedFileStorage: UploadedFileStorage,
 ) {
-    @Transactional
-    fun register(title: String?, url: String): Recording =
+    /**
+     * 영상 출처는 업로드 파일 또는 외부 URL 중 정확히 하나다.
+     * 업로드 파일은 입력 검증 → 파일 저장 → 메타데이터 저장 순서로 등록하고, 메타데이터 저장이 실패하면 파일을 지운다.
+     */
+    fun register(title: String?, url: String?, file: UploadedFileInput?): Recording {
+        val externalUrl = url?.takeIf { it.isNotBlank() }
+        VideoSource.requireExactlyOne(hasFile = file != null, hasUrl = externalUrl != null)
+        return if (file != null) registerUploadedFile(title, file) else registerExternalUrl(title, externalUrl!!)
+    }
+
+    private fun registerExternalUrl(title: String?, url: String): Recording =
         recordingRepository.save(
             Recording.register(
                 title = title,
@@ -26,8 +35,7 @@ class RecordingService(
             )
         )
 
-    /** 입력 검증 → 파일 저장 → 메타데이터 저장 순서로 등록한다. */
-    fun registerUploadedFile(title: String?, upload: UploadedFileInput): Recording {
+    private fun registerUploadedFile(title: String?, upload: UploadedFileInput): Recording {
         val extension = upload.originalFilename.orEmpty().substringAfterLast('.', "").lowercase()
         if (extension !in ALLOWED_EXTENSIONS) {
             throw FieldValidationException("file", "mp4 또는 webm 파일만 올릴 수 있습니다.")

@@ -1,6 +1,6 @@
 package com.chzzz.recording
 
-import com.chzzz.common.FieldValidationException
+import com.chzzz.common.NotFoundException
 import org.springframework.core.io.Resource
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.GetMapping
@@ -8,7 +8,6 @@ import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
-import org.springframework.web.bind.annotation.RequestPart
 import org.springframework.web.bind.annotation.RestController
 import org.springframework.web.multipart.MultipartFile
 import java.net.URI
@@ -24,15 +23,15 @@ class RecordingController(
         recordingService.list().map(RecordingSummaryResponse::from)
 
     @GetMapping("/{id}")
-    fun detail(@PathVariable id: Long): ResponseEntity<RecordingDetailResponse> {
-        val recording = recordingService.find(id) ?: return ResponseEntity.notFound().build()
-        return ResponseEntity.ok(RecordingDetailResponse.from(recording))
+    fun detail(@PathVariable id: Long): RecordingDetailResponse {
+        val recording = recordingService.find(id) ?: throw NotFoundException("녹화방송을 찾을 수 없습니다.")
+        return RecordingDetailResponse.from(recording)
     }
 
     /** Range 요청(206/416)과 `Accept-Ranges`는 Spring MVC가 [Resource] 본문에 대해 처리한다. */
     @GetMapping("/{id}/video")
     fun video(@PathVariable id: Long): ResponseEntity<Resource> {
-        val video = recordingService.findVideo(id) ?: return ResponseEntity.notFound().build()
+        val video = recordingService.findVideo(id) ?: throw NotFoundException("재생할 업로드 파일을 찾을 수 없습니다.")
         return ResponseEntity.ok().contentType(video.mediaType).body(video.resource)
     }
 
@@ -40,13 +39,10 @@ class RecordingController(
     fun register(
         @RequestParam(required = false) title: String?,
         @RequestParam(required = false) url: String?,
-        @RequestPart(required = false) file: MultipartFile?,
+        @RequestParam(required = false) file: MultipartFile?,
     ): ResponseEntity<RecordingDetailResponse> {
-        val recording = if (file != null) {
-            recordingService.registerUploadedFile(title, UploadedFileInput(file.originalFilename, file.inputStream))
-        } else {
-            recordingService.register(title, url ?: throw FieldValidationException("url", "영상 URL을 입력해 주세요."))
-        }
+        val upload = file?.takeIf { !it.isEmpty }?.let { UploadedFileInput(it.originalFilename, it.inputStream) }
+        val recording = recordingService.register(title, url, upload)
         return ResponseEntity
             .created(URI.create("/api/recordings/${recording.id}"))
             .body(RecordingDetailResponse.from(recording))

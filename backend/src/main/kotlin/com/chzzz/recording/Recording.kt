@@ -29,9 +29,14 @@ class Recording private constructor(
     val id: Long? = null
 
     companion object {
+        const val TITLE_MAX_LENGTH = 100
+
         fun register(title: String?, videoSource: VideoSource, now: Instant): Recording {
             val trimmed = title?.trim().orEmpty()
             if (trimmed.isEmpty()) throw FieldValidationException("title", "제목을 입력해 주세요.")
+            if (trimmed.length > TITLE_MAX_LENGTH) {
+                throw FieldValidationException("title", "제목은 ${TITLE_MAX_LENGTH}자 이하로 입력해 주세요.")
+            }
             // PostgreSQL timestamptz는 마이크로초까지 저장한다. 응답과 저장값이 어긋나지 않도록 맞춘다.
             return Recording(trimmed, videoSource, now.truncatedTo(ChronoUnit.MICROS))
         }
