@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
+import org.springframework.web.multipart.MultipartFile
 import java.net.URI
 import java.time.Instant
 
@@ -29,9 +30,10 @@ class RecordingController(
     @PostMapping
     fun register(
         @RequestParam(required = false) title: String?,
-        @RequestParam url: String,
+        @RequestParam(required = false) url: String?,
+        @RequestParam(required = false) file: MultipartFile?,
     ): ResponseEntity<RecordingDetailResponse> {
-        val recording = recordingService.register(title, url)
+        val recording = recordingService.register(title, url, file)
         return ResponseEntity
             .created(URI.create("/api/recordings/${recording.id}"))
             .body(RecordingDetailResponse.from(recording))

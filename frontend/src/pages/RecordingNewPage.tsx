@@ -1,33 +1,101 @@
 import { useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router'
-import { api } from '../api'
+import { api, ApiError } from '../api'
+
+type FieldErrors = Partial<Record<string, string>>
+
+const TITLE_MAX_LENGTH = 100
+
+/** 입력란 옆에 표시하는 필드. 그 밖의 필드 오류(예: source)는 폼 위 알림에 모은다. */
+const INPUT_FIELDS = ['title', 'url']
+
+function validate(title: string, url: string): FieldErrors {
+  const errors: FieldErrors = {}
+  const trimmedTitle = title.trim()
+  if (trimmedTitle.length === 0) errors.title = '제목을 입력해 주세요.'
+  else if (trimmedTitle.length > TITLE_MAX_LENGTH) errors.title = `제목은 ${TITLE_MAX_LENGTH}자 이하로 입력해 주세요.`
+  const urlError = validateUrl(url.trim())
+  if (urlError) errors.url = urlError
+  return errors
+}
+
+// 브라우저의 URL 파서는 'https:///a.mp4'를 호스트 'a.mp4'로 고쳐 해석하므로, 서버와 같은 판단을 하도록 원문을 검사한다.
+function validateUrl(url: string): string | undefined {
+  if (url.length === 0) return '영상 URL을 입력해 주세요.'
+  const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(url)?.[1].toLowerCase()
+  if (scheme !== 'http' && scheme !== 'https') return 'http 또는 https로 시작하는 영상 주소를 입력해 주세요.'
+  if (!/^https?:\/\/[^/?#\s]+/i.test(url)) return '영상 주소에 호스트가 없습니다. 주소를 확인해 주세요.'
+  return undefined
+}
 
 export default function RecordingNewPage() {
   const navigate = useNavigate()
   const [title, setTitle] = useState('')
   const [url, setUrl] = useState('')
+  const [errors, setErrors] = useState<FieldErrors>({})
+  const [formError, setFormError] = useState<string>()
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
+    const clientErrors = validate(title, url)
+    setErrors(clientErrors)
+    setFormError(undefined)
+    if (Object.keys(clientErrors).length > 0) return
+
     const form = new FormData()
     form.append('title', title)
     form.append('url', url)
-    const recording = await api.registerRecording(form)
-    navigate(`/recordings/${recording.id}`)
+    try {
+      const recording = await api.registerRecording(form)
+      navigate(`/recordings/${recording.id}`)
+    } catch (error) {
+      if (!(error instanceof ApiError)) throw error
+      setErrors(Object.fromEntries(error.errors.map((e) => [e.field, e.message])))
+      setFormError(error.message)
+    }
   }
+
+  const otherMessages = Object.entries(errors)
+    .filter(([field]) => !INPUT_FIELDS.includes(field))
+    .map(([, message]) => message)
 
   return (
     <section>
       <h1>녹화방송 등록</h1>
-      <form onSubmit={handleSubmit}>
+      {(formError || otherMessages.length > 0) && (
+        <div role="alert">
+          {formError && <p>{formError}</p>}
+          {otherMessages.length > 0 && (
+            <ul>
+              {otherMessages.map((message) => (
+                <li key={message}>{message}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+      <form onSubmit={handleSubmit} noValidate>
         <label>
           제목
-          <input value={title} onChange={(e) => setTitle(e.target.value)} />
+          <input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            aria-invalid={errors.title ? true : undefined}
+            aria-describedby={errors.title ? 'title-error' : undefined}
+          />
         </label>
+        {errors.title && <p id="title-error">{errors.title}</p>}
         <label>
           영상 URL
-          <input type="url" value={url} onChange={(e) => setUrl(e.target.value)} />
+          <input
+            type="url"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            aria-invalid={errors.url ? true : undefined}
+            aria-describedby={errors.url ? 'url-error' : undefined}
+          />
         </label>
+        {errors.url && <p id="url-error">{errors.url}</p>}
         <button type="submit">등록</button>
       </form>
     </section>
