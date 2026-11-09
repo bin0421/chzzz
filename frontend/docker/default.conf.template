@@ -25,6 +25,25 @@ server {
         proxy_send_timeout 300s;
     }
 
+    # 내부 엔드포인트(MediaMTX 인증·상태 훅)는 밖으로 전달하지 않는다. SPA로도 돌리지 않고 404로 끝낸다
+    location /internal/ {
+        return 404;
+    }
+
+    # 라이브 방송 WHIP/WHEP: /media 접두어를 떼서 MediaMTX WebRTC HTTP 포트로 넘긴다
+    location /media/ {
+        proxy_pass ${MEDIAMTX_URL}/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        # MediaMTX는 세션 주소를 /live/{id}/whip/... 처럼 자기 기준 경로로 돌려준다.
+        # 브라우저가 같은 출처의 /media/...로 다시 부를 수 있게 접두어를 붙인다.
+        # absolute_redirect를 끄지 않으면 nginx가 컨테이너 포트(80) 기준 절대 주소로 바꿔 호스트 포트가 빠진다
+        proxy_redirect ~^/(.*)$ /media/$1;
+        absolute_redirect off;
+    }
+
     # SPA 라우트(/recordings/1 등)는 index.html로 돌려 React Router가 처리한다
     location / {
         try_files $uri $uri/ /index.html;

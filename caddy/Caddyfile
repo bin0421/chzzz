@@ -1,0 +1,35 @@
+# chzzz HTTPS 입구 (ADR-0004)
+# 휴대폰 브라우저는 HTTPS에서만 카메라·마이크를 허용하므로, PC의 LAN IP(PUBLIC_HOST)로 HTTPS를 연다.
+# 인증서는 Caddy가 만든 로컬 CA로 서명한다(tls internal). 처음 접속할 때 인증서 경고가 한 번 뜬다.
+# {$PUBLIC_HOST}, {$HTTPS_PORT}는 docker-compose.yml이 넘기는 환경변수다.
+{
+	# HTTP(80) → HTTPS 리다이렉트는 쓰지 않는다. 입구는 HTTPS 포트 하나다.
+	auto_https disable_redirects
+	# IP로 접속하면 브라우저가 SNI를 보내지 않으므로, 이때도 PUBLIC_HOST 인증서를 쓴다.
+	default_sni {$PUBLIC_HOST}
+	# 컨테이너 안의 신뢰 저장소에 로컬 CA를 설치하려 하지 않는다.
+	skip_install_trust
+}
+
+https://{$PUBLIC_HOST}:{$HTTPS_PORT} {
+	tls internal
+
+	# 내부 엔드포인트(MediaMTX 인증·상태 훅)는 밖으로 전달하지 않는다.
+	handle /internal/* {
+		respond 404
+	}
+
+	# 라이브 방송 WHIP/WHEP: /media 접두어를 떼서 MediaMTX WebRTC HTTP 포트로 넘긴다.
+	handle_path /media/* {
+		reverse_proxy mediamtx:8889 {
+			# MediaMTX는 세션 주소를 /live/{id}/whip/... 처럼 자기 기준 경로로 돌려준다.
+			# 브라우저가 같은 출처의 /media/...로 다시 부를 수 있게 접두어를 붙인다.
+			header_down Location "^/(.*)$" "/media/$1"
+		}
+	}
+
+	# 나머지(화면, /api)는 프론트 nginx로 보낸다. 업로드 한도는 nginx와 백엔드가 1단계 설정대로 지킨다.
+	handle {
+		reverse_proxy frontend:80
+	}
+}

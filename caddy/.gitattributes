@@ -1,0 +1,2 @@
+# 컨테이너의 Caddy가 읽는 설정이므로 Windows에서 체크아웃해도 LF를 유지한다(caddy fmt 경고 방지)
+* text eol=lf
