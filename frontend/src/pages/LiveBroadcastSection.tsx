@@ -54,6 +54,7 @@ export default function LiveBroadcastSection() {
               <li key={broadcast.id}>
                 <Link to={`/live/${broadcast.id}`}>{broadcast.title}</Link>
                 <span className="meta">
+                  {broadcast.owner && <span className="owner">{broadcast.owner.nickname}</span>}
                   {at && <time dateTime={at}>{formatDateTime(at)}</time>}
                   {ended ? <span className="badge ended">종료</span> : <span className="badge live">방송 중</span>}
                 </span>

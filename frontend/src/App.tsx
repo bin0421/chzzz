@@ -38,7 +38,14 @@ export default function App() {
           />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/signup" element={<SignUpPage />} />
-          <Route path="/live/new" element={<LiveBroadcastNewPage />} />
+          <Route
+            path="/live/new"
+            element={
+              <RequireLogin>
+                <LiveBroadcastNewPage />
+              </RequireLogin>
+            }
+          />
           <Route path="/live/:id" element={<LiveBroadcastWatchPage />} />
           <Route
             path="/recordings/new"

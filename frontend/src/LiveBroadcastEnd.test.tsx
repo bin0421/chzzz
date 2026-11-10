@@ -27,8 +27,17 @@ function endRequests(fetchMock: ReturnType<typeof stubFetch>) {
   )
 }
 
+/** 송출 화면에서 방송을 시작해 방송 중 상태까지 간다. */
+async function startBroadcast(user: ReturnType<typeof userEvent.setup>) {
+  await user.type(screen.getByLabelText('제목'), '저녁 산책 라이브')
+  await user.click(screen.getByRole('button', { name: '방송 시작' }))
+  await screen.findByText('방송 중')
+}
+
+// 3단계(ADR-0006): 종료는 송출 키가 아니라 로그인한 소유자 세션으로 한다.
+// 그래서 송출 키 헤더와 탭 저장소(sessionStorage) 보관·재개 표시를 확인하던 2단계 테스트를 새 동작으로 바꿨다.
 describe('송출 화면의 방송 종료', () => {
-  it('방송 종료를 누르면 송출을 멈추고 송출 키로 종료 API를 부르고 카메라를 끈다', async () => {
+  it('방송 종료를 누르면 송출을 멈추고 송출 키 없이 세션으로 종료 API를 부르고 카메라를 끈다', async () => {
     const fetchMock = stubFetch([
       {
         method: 'POST',
@@ -51,13 +60,13 @@ describe('송출 화면의 방송 종료', () => {
     expect(await screen.findByText('방송이 종료되었습니다.')).toBeInTheDocument()
     expect(media.publication.stop).toHaveBeenCalled()
     const [[, init]] = endRequests(fetchMock)
-    expect(new Headers(init?.headers).get('Authorization')).toBe('Bearer secret-key')
+    expect(new Headers(init?.headers).get('Authorization')).toBeNull()
     for (const track of media.previewStream.getTracks()) expect(track.stop).toHaveBeenCalled()
     expect((screen.getByTestId('live-preview') as HTMLVideoElement).srcObject).toBeNull()
   })
 
-  it('송출 화면을 새로고침해도 같은 탭에서는 송출 키로 방송을 종료할 수 있다', async () => {
-    const fetchMock = stubFetch([
+  it('송출 키를 탭 저장소에 남기지 않고, 새로고침하면 "이 탭에서 시작한" 재개 표시 없이 시작 화면이 나온다', async () => {
+    stubFetch([
       {
         method: 'POST',
         path: '/api/live-broadcasts',
@@ -65,26 +74,29 @@ describe('송출 화면의 방송 종료', () => {
         body: { ...대기, streamKey: 'secret-key', whipUrl: '/media/live/7/whip' },
       },
       { path: '/api/live-broadcasts/7', body: 방송중 },
-      { method: 'POST', path: '/api/live-broadcasts/7/end', body: 종료 },
     ])
     const user = userEvent.setup()
     const first = renderApp('/live/new')
-    await user.type(screen.getByLabelText('제목'), '저녁 산책 라이브')
-    await user.click(screen.getByRole('button', { name: '방송 시작' }))
-    await screen.findByText('방송 중')
+    await startBroadcast(user)
 
-    first.unmount() // 새로고침: 화면 상태는 사라지고 탭 저장소만 남는다
+    expect(JSON.stringify({ ...sessionStorage })).not.toContain('secret-key')
+    first.unmount() // 새로고침: 화면 상태가 사라진다. 종료는 시청 화면에서 소유자로 한다.
     renderApp('/live/new')
-    await user.click(await screen.findByRole('button', { name: '방송 종료' }))
 
-    expect(await screen.findByText('방송이 종료되었습니다.')).toBeInTheDocument()
-    const [[, init]] = endRequests(fetchMock)
-    expect(new Headers(init?.headers).get('Authorization')).toBe('Bearer secret-key')
+    expect(await screen.findByRole('button', { name: '방송 시작' })).toBeInTheDocument()
+    expect(screen.queryByText(/이 탭에서 시작한/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '방송 종료' })).not.toBeInTheDocument()
   })
 
   it('끊김으로 이미 종료된 방송을 종료하려 하면(409) 종료된 것으로 보여 준다', async () => {
-    sessionStorage.setItem('chzzz.ownLiveBroadcast', JSON.stringify({ id: 7, streamKey: 'secret-key' }))
     stubFetch([
+      {
+        method: 'POST',
+        path: '/api/live-broadcasts',
+        status: 201,
+        body: { ...대기, streamKey: 'secret-key', whipUrl: '/media/live/7/whip' },
+      },
+      { path: '/api/live-broadcasts/7', body: 방송중 },
       {
         method: 'POST',
         path: '/api/live-broadcasts/7/end',
@@ -94,11 +106,11 @@ describe('송출 화면의 방송 종료', () => {
     ])
     const user = userEvent.setup()
     renderApp('/live/new')
+    await startBroadcast(user)
 
-    await user.click(await screen.findByRole('button', { name: '방송 종료' }))
+    await user.click(screen.getByRole('button', { name: '방송 종료' }))
 
     expect(await screen.findByText('방송이 종료되었습니다.')).toBeInTheDocument()
-    expect(sessionStorage.getItem('chzzz.ownLiveBroadcast')).toBeNull()
   })
 })
 
