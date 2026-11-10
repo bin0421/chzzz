@@ -1,6 +1,6 @@
 # chzzz
 
-제출용 과제: 로그인 없이 녹화방송을 등록하고 시청하는 서비스. 확정된 내용은 아래 **과제** 섹션에 채운다.
+제출용 과제: 녹화방송·라이브 방송을 등록·송출하고 시청하며 댓글을 다는 서비스. 확정된 내용은 아래 **과제** 섹션에 채운다.
 
 ## 소통
 
@@ -50,12 +50,18 @@
   - 시청자는 방송 목록에서 라이브 방송을 골라 시청한다. 방송 중·종료 상태를 구분해 표시한다.
   - 로그인 없이 송출·시청한다.
   - README에 휴대폰 연결·카메라·마이크 권한·접속 환경·송출 시작·종료 확인 절차, 실행 방법·환경변수 예시·구현 범위·직접 확인 절차를 적는다.
-- 범위: 1단계는 등록·목록·상세·재생만(수정·삭제·검색·페이지네이션·썸네일 제외, 외부 URL은 `<video>`로 바로 재생되는 주소만). 2단계는 송출 시작·종료와 시청, 상태 표시만(다시보기 저장·시청자 수·채팅·TURN 제외). 범위 밖은 README에 명시한다.
-- 기술 스택: 백엔드 Spring Boot 4.1.x + Kotlin, JDK 21, Gradle Kotlin DSL(wrapper). 프론트엔드 React + Vite + TypeScript, React Router, `fetch`. DB PostgreSQL(Docker Compose). 업로드 파일은 로컬 디스크(`RECORDING_STORAGE_DIR`)에 두고 Range 요청으로 스트리밍한다. 라이브 송출은 WebRTC WHIP/WHEP + MediaMTX(ADR-0003), 휴대폰 HTTPS는 Caddy 로컬 CA(ADR-0004).
+- 요구사항 (3단계, 진행 중):
+  - 1·2단계 기능(녹화방송, 휴대폰 라이브 송출·시청)을 유지한다.
+  - 회원가입·로그인·로그아웃과 인증 상태 관리.
+  - 방송 소유자를 구분하고, 방송 등록·수정·삭제와 송출 제어 권한을 서버에서 검사한다. 화면에서 버튼을 숨기는 것으로 대신하지 않는다.
+  - 로그인한 회원이 방송별 댓글을 쓰고, 누구나 방송별 댓글 목록을 본다. 서버는 비로그인 댓글 작성을 거절하고, 댓글 수정·삭제는 작성자만 한다.
+  - README에 시청·목록 조회의 공개 여부와 실행 방법·환경변수 예시·구현 범위·직접 확인 절차(비로그인·소유자·다른 회원별 허용·거절)를 적는다.
+- 범위: 1단계는 등록·목록·상세·재생만(수정·삭제·검색·페이지네이션·썸네일 제외, 외부 URL은 `<video>`로 바로 재생되는 주소만). 2단계는 송출 시작·종료와 시청, 상태 표시만(다시보기 저장·시청자 수·채팅·TURN 제외). 3단계는 회원(아이디·비밀번호·닉네임), 방송 제목 수정·삭제, 댓글 작성·목록·수정·삭제만(이메일 인증·비밀번호 찾기·탈퇴·관리자·로그인 시도 제한·실시간 채팅·송출 재개 제외). 범위 밖은 README에 명시한다.
+- 기술 스택: 백엔드 Spring Boot 4.1.x + Kotlin, JDK 21, Gradle Kotlin DSL(wrapper). 프론트엔드 React + Vite + TypeScript, React Router, `fetch`. DB PostgreSQL(Docker Compose). 업로드 파일은 로컬 디스크(`RECORDING_STORAGE_DIR`)에 두고 Range 요청으로 스트리밍한다. 라이브 송출은 WebRTC WHIP/WHEP + MediaMTX(ADR-0003), 휴대폰 HTTPS는 Caddy 로컬 CA(ADR-0004). 인증은 Spring Security 서버 세션 쿠키 + CSRF 토큰(ADR-0005), 송출 키는 MediaMTX 송출 허가 전용(ADR-0006).
 - 구조: 루트에 `backend/`, `frontend/`, `docker-compose.yml`, `README.md`. 라이브 송출 설정은 `mediamtx/`(MediaMTX), `caddy/`(HTTPS)에 둔다.
 - 실행: `docker compose up --build`로 전체 실행(채점용, 휴대폰은 `https://<PUBLIC_HOST>:8443`)과, `db`·`mediamtx`만 compose + `./gradlew bootRun` + `npm run dev`(개발용, PC `localhost`)를 모두 지원한다. 휴대폰 확인은 전체 실행에서만 한다.
 - 테스트: 백엔드 JUnit 5 + Spring Boot Test + Testcontainers(PostgreSQL), MediaMTX 훅은 내부 엔드포인트 호출로 흉내 낸다. 프론트 Vitest + React Testing Library, `fetch`와 미디어 어댑터(카메라·WebRTC)만 가짜로 바꾼다. E2E 자동화 대신 README의 직접 확인 절차.
-- 진행: 과제는 4단계로 진행하며 2단계까지 끝났고 다음은 3단계다. 각 단계의 기능은 그 단계에서만 구현한다.
+- 진행: 과제는 4단계로 진행하며 현재 3단계다. 각 단계의 기능은 그 단계에서만 구현한다.
   1. 녹화방송 등록·시청 (TDD)
   2. 라이브 방송 송출
   3. 인증·인가, 댓글
