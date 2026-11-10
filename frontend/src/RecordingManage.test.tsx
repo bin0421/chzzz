@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react'
+import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { anonymous, defaultMember, requestsTo, stubFetch } from './test/fetchStub'
@@ -42,7 +42,8 @@ describe('녹화방송 상세 화면의 소유자 관리 버튼', () => {
     renderApp('/recordings/7')
 
     await screen.findByRole('heading', { name: '내 방송' })
-    await screen.findByRole('link', { name: '로그인' })
+    // 댓글 영역에도 로그인 링크가 있어 헤더에서 찾는다.
+    await within(screen.getByRole('banner')).findByRole('link', { name: '로그인' })
     expect(screen.queryByRole('button', { name: '수정' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '삭제' })).not.toBeInTheDocument()
   })

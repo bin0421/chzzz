@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router'
 import { api, ApiError, type LiveBroadcastDetail } from '../api'
 import { useAuth } from '../auth/auth'
+import CommentSection from '../comments/CommentSection'
 import { formatDateTime } from '../format'
 import { useMediaAdapter } from '../media/MediaAdapter'
 import { validateTitle } from '../titleRule'
@@ -199,6 +200,7 @@ export default function LiveBroadcastWatchPage() {
           )}
         </>
       )}
+      <CommentSection kind="live" id={broadcast.id} pollMs={DETAIL_POLL_MS} />
     </article>
   )
 }

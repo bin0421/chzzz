@@ -76,7 +76,7 @@ export function setUnauthorizedHandler(handler: () => void) {
 }
 
 /** 모든 API 요청이 지나는 곳. 상태를 바꾸는 요청에는 CSRF 토큰을 헤더로 싣는다. */
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const method = (init?.method ?? 'GET').toUpperCase()
   const headers = new Headers(init?.headers)
   const token = csrfToken()
@@ -91,7 +91,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>
 }
 
-function json(method: string, body: unknown): RequestInit {
+export function json(method: string, body: unknown): RequestInit {
   return { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
 }
 
