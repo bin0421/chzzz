@@ -123,5 +123,43 @@ red → green(→ refactor) 사이클마다 한 줄씩 기록한다. 4단계까�
 | 96 | [01] 백엔드 `맞는 아이디와 비밀번호로 로그인하면…` / `틀리면 같은 401 메시지` / `로그인하면 세션 ID가 바뀐다` | 로그인 엔드포인트 없음 | `POST /api/auth/login`, `authenticate`(어느 쪽이 틀렸는지 구분 안 함), 기존 세션이 있으면 `changeSessionId` | 가입·로그인이 같은 세션 시작 함수를 씀 |
 | 97 | [01] 백엔드 `로그인하지 않고 녹화방송을 등록하면 401…` / `로그인한 회원이 등록하면 소유자가 되고…` / `회원 기능 이전 녹화방송은 소유자가 없다` | 비로그인 등록이 201, 응답에 `owner` 없음 | 녹화방송 `owner`(nullable), 등록에 `LoginMember` 필요, 응답에 `owner { id, nickname }`, 목록은 소유자를 함께 조회 | 기존 녹화방송 테스트는 가입한 세션으로 등록하도록 바꿈 |
 | 98 | [01] 프론트 회원가입 2개, 로그인·로그아웃 3개, 로그인 필요 화면 2개, CSRF 헤더 1개, 소유자 표시 1개 (`Auth.test.tsx`) | 가입·로그인 화면, 헤더 계정 메뉴, CSRF 헤더, 소유자 표시가 없음 | 인증 상태(`AuthProvider`, `useAuth`), 공용 `request`의 CSRF 헤더·401 처리, `/signup`·`/login`, `RequireLogin`과 같은 사이트 경로만 허용하는 `next`, 목록·상세 소유자 닉네임 | 훅·도우미를 컴포넌트 파일에서 분리(린트 경고). 기존 테스트는 `me` 요청이 끼어도 되게 요청을 경로로 찾도록 바꿈 |
+| 99 | [02] 백엔드 `RecordingEditApiTest` 소유자가 제목을 수정하면 200 상세가 오고 이후 조회에도 새 제목이 나온다 | `PATCH` 경로 없음(405) | `PATCH /api/recordings/{id}`, `RecordingService.rename`, `Recording.rename`(제목 규칙 재사용) | 없음 |
+| 100 | [02] 백엔드 `RecordingEditApiTest` 400·401·403(다른 회원·소유자 없음)·404·CSRF 거절 뒤 제목 그대로 | 처음부터 green(01 기반). 소유자 검사를 빼면 403 두 테스트가 200으로 red | 변경 없음 | 없음 |
+| 101 | [02] 백엔드 `RecordingDeleteApiTest` 소유자가 삭제하면 204, 상세 404, 목록에서 빠지고 방송 삭제됨 이벤트 발행 | `DELETE` 경로 없음(405) | `DELETE /api/recordings/{id}`, `RecordingService.delete`(삭제 + 이벤트 발행) | 없음 |
+| 102 | [02] 백엔드 `RecordingDeleteApiTest` 업로드 파일 녹화방송을 삭제하면 디스크의 파일도 지워지고 영상 주소는 404 | 파일이 디스크에 남음 | 커밋 뒤(`afterCommit`) 업로드 파일 삭제 | 없음 |
+| 103 | [02] 백엔드 `RecordingDeleteApiTest` 다른 회원·소유자 없는 방송 삭제 403(파일·이벤트 그대로), 401, 404, CSRF | 소유자 검사 전: 다른 회원·소유자 없는 방송이 204로 red | `Ownership.requireOwner` 호출 | 없음 |
+| 104 | [02] 프론트 `RecordingManage.test` 소유자에게 수정·삭제 버튼, 다른 회원·비로그인·소유자 없음에는 없음 | 소유자에게 버튼 없음 | 로그인 회원 id와 소유자 id가 같으면 버튼 표시 | 없음 |
+| 105 | [02] 프론트 `RecordingManage.test` 제목을 고쳐 저장하면 CSRF 헤더와 함께 PATCH, 새 제목 표시 | 제목 입력란 없음 | `RecordingTitleEditor`, `api.updateRecordingTitle` | 없음 |
+| 106 | [02] 프론트 `RecordingManage.test` 취소 | 처음부터 green(앞 사이클의 취소 버튼) | 변경 없음 | 없음 |
+| 107 | [02] 프론트 `RecordingManage.test` 400 입력란 옆 이유, 401 로그인 안내·링크, 403 권한 없음 | 안내 없음(처리되지 않은 거절) | 입력란 오류 표시, `ActionErrorNotice`(401·403) | 수정·삭제가 함께 쓰도록 안내를 페이지 수준으로 둠 |
+| 108 | [02] 프론트 `RecordingManage.test` 삭제 확인 → DELETE → 목록 이동, 확인 취소 시 요청 없음, 403 안내 | 삭제 버튼이 아무 일도 하지 않음 | `window.confirm` 후 `api.deleteRecording`, 성공 시 `/`로 이동, 실패 시 `ActionErrorNotice` | 없음 |
+| 109 | [03] 백엔드 `LiveBroadcastOwnerApiTest` 로그인하지 않고 라이브 방송을 시작하면 401이고 만들어지지 않는다 | 비로그인 시작이 `201`로 만들어짐 | 시작 컨트롤러에 `LoginMember` 파라미터. 2단계 라이브 테스트 9개의 시작 요청에 가입 세션(`signUpSomeone`)을 실음 | 시작 도우미 `startLiveAs`·`signUpSomeone`을 `LiveTestSupport`로 |
+| 110 | [03] 백엔드 `LiveBroadcastOwnerApiTest` 시작한 회원이 소유자가 되고 시작·목록·상세에 소유자 닉네임 / 회원 기능 이전 방송은 소유자 없음 | 응답에 `owner` 없음 | `LiveBroadcast.owner`(`owner_id`) 매핑, 시작 시 회원 기록, 세 응답에 `owner` | 목록 조회에 `@EntityGraph(owner)` |
+| 111 | [03] 백엔드 `LiveBroadcastControlApiTest` 종료: 다른 탭의 소유자 200, 비로그인 401(송출 키 있어도), 다른 회원 403(송출 키 있어도), 소유자 없음 403, 404·409, 401이 404보다 먼저 | 송출 키 없는 소유자 `403`, 키 가진 비로그인·다른 회원 `200`, 비로그인 없는 방송 `404` | 종료를 `LoginMember` + `Ownership.requireOwner`로. 송출 키 헤더 처리 삭제. `LiveBroadcastEndApiTest`(2단계)를 소유자 세션 기준으로 바꿈 | - |
+| 112 | [03] 백엔드 `LiveBroadcastControlApiTest` 제목 수정: 대기·방송 중·종료 모두 200, 401·403·403(소유자 없음)·404 뒤 그대로, 빈 제목 400 | `PATCH` 없음(`405`) | `PATCH /api/live-broadcasts/{id}`, `LiveBroadcast.rename`(공통 `Title` 규칙) | - |
+| 113 | [03] 백엔드 `LiveBroadcastControlApiTest` 삭제: 종료면 204·사라짐·"방송 삭제됨" 이벤트, 대기·방송 중 409, 401·403·403·404 뒤 그대로 | `DELETE` 없음(`405`) | `DELETE /api/live-broadcasts/{id}`, 종료 아니면 `409`, `BroadcastDeletedEvent(LIVE_BROADCAST, id)` 발행 | - |
+| 114 | [03] 프론트 `LiveBroadcastOwner.test` 비로그인으로 송출 화면에 들어가면 로그인 화면으로 가고, 로그인하면 돌아온다 | 송출 화면이 그대로 그려짐 | `/live/new`를 `RequireLogin`으로 감쌈 | - |
+| 115 | [03] 프론트 `LiveBroadcastEnd.test`(2단계 3개를 새 동작으로) 송출 키 없이 세션으로 종료 / 탭 저장소에 키를 남기지 않고 새로고침하면 재개 표시 없음 / 409면 종료로 보여 줌 | 종료 요청에 `Authorization: Bearer`가 실림, sessionStorage에 송출 키가 남음 | 송출 화면의 sessionStorage 보관·`resumed` 단계 삭제, `api.endLiveBroadcast(id)`에서 송출 키 헤더 삭제 | - |
+| 116 | [03] 프론트 `LiveBroadcastControl.test` 소유자 닉네임과 소유자에게만 제목 수정·방송 종료(대기·방송 중)·삭제(종료) / 다른 회원·비로그인은 버튼 없음 | 소유자 닉네임·버튼 없음 | 시청 화면에 `.owner`와 `owner-actions`(로그인 회원 id == `owner.id`) | - |
+| 117 | [03] 프론트 `LiveBroadcastControl.test` 시청 화면에서 방송 종료 → 세션으로 종료, 삭제 버튼 | 버튼에 동작 없음 | `handleEnd` → 응답으로 상세 갱신 | - |
+| 118 | [03] 프론트 `LiveBroadcastControl.test` 제목 수정 저장 → PATCH·제목 갱신 / 400이면 입력란 옆 이유 | 입력란 없음 | `TitleEditor`(공통 `validateTitle`), `api.renameLiveBroadcast` | 400은 "취소" 후 원래 제목을 확인하도록 테스트를 맞춤(편집 중에는 머리글 대신 입력란) |
+| 119 | [03] 프론트 `LiveBroadcastControl.test` 삭제: 확인 취소면 요청 없음, 확인하면 DELETE 후 목록 | 버튼에 동작 없음 | `window.confirm` 후 `api.deleteLiveBroadcast`, `navigate('/')` | - |
+| 120 | [03] 프론트 `LiveBroadcastControl.test` 403 권한 없음 안내 / 401 로그인 안내와 `next` 로그인 링크 / 409 서버 이유 | 거절이 처리되지 않은 오류로 남음 | `control()`로 감싸 `ControlErrorNotice` 표시 | - |
+| 121 | [03] 프론트 `LiveBroadcastControl.test` 제목 수정 403도 같은 안내 | 400이 아닌 거절을 입력란에서 처리 | `TitleEditor`가 400 외 거절은 `onRejected`로 넘김 | - |
+| 122 | [03] 프론트 `LiveBroadcastOwner.test` 라이브 섹션에 소유자 닉네임(소유자 없으면 표시 안 함) | 목록에 닉네임 없음 | 라이브 섹션 항목에 `.owner` | 관리 버튼·제목 편집 폼 CSS |
+| 123 | [04] 백엔드 `CommentApiTest` 로그인한 회원이 녹화방송에 쓴 댓글이 누구나 보는 목록에 오래된 순으로 나온다 | 댓글 API가 없어 작성이 201이 아님 | `Comment` 엔티티·`CommentContent` 규칙·저장소·서비스·컨트롤러(녹화방송 목록·작성) | - |
+| 124 | [04] 백엔드 `CommentApiTest` 종료된 라이브 방송에도 댓글을 쓰고 누구나 목록을 본다 / 같은 식별자라도 녹화방송과 라이브 방송의 댓글은 섞이지 않는다 | 라이브 방송 댓글 경로 없음 | 라이브 방송 경로 추가, 존재 확인에 `LiveBroadcastRepository.existsById` | - |
+| 125 | [04] 백엔드 `CommentWriteRejectionApiTest` (비로그인 401, 방송 없음 404, 401이 404보다 먼저, 내용 400) | red 없음: 01의 `LoginMember`·공통 예외 처리와 위 사이클의 내용 규칙으로 처음부터 green | - | - |
+| 126 | [04] 백엔드 `CommentAuthorApiTest` 작성자 수정·삭제, 비로그인 401·다른 회원/방송 소유자 403·없는 댓글 404, 거절 뒤 그대로 | `PATCH`·`DELETE /api/comments/{id}` 없음 | `CommentService.edit`·`delete`(`Ownership.requireOwner`), 컨트롤러 매핑 | - |
+| 127 | [04] 백엔드 `CommentAuthorApiTest` CSRF 토큰 없는 댓글 작성·수정·삭제는 403 | red 없음: 01의 CSRF 설정으로 처음부터 green | - | - |
+| 128 | [04] 백엔드 `CommentBroadcastDeletedApiTest` 방송 삭제됨 이벤트(녹화방송·라이브 방송)를 받으면 그 방송의 댓글만 지운다 | 리스너가 없어 댓글이 남음 | `BroadcastCommentsCleaner`(`@EventListener`), 저장소 일괄 삭제 쿼리 | - |
+| 129 | [04] 프론트 `Comments.test` 상세 화면 아래에 댓글을 오래된 순으로 닉네임·작성 시각·수정됨과 함께 보여 준다 | 댓글 영역 없음 | `CommentSection`·`commentApi.list`, 녹화방송 상세에 한 줄, `api.ts`의 `request`·`json` export | - |
+| 130 | [04] 프론트 `Comments.test` 비로그인 로그인 안내·`next` 링크 / 작성(CSRF 헤더, 바로 목록에) / 400 안내 / 빈 댓글은 보내지 않음 | 작성란·안내 없음 | `CommentForm`, `commentRule.checkCommentContent`, `commentApi.write` | - |
+| 131 | [04] 프론트 `Comments.test` 작성자에게만 수정·삭제 / 인라인 수정 / 취소 / 확인 후 삭제 / 403 안내 / 401이면 로그인 안내 | 수정·삭제 버튼 없음(비로그인 버튼 없음 테스트는 처음부터 green) | `CommentItem`, `commentApi.edit`·`delete`, 401·403 안내 | - |
+| 132 | [04] 프론트 `Comments.test` 종료된 라이브 방송 시청 화면에도 댓글 / 3초마다 다시 불러와 다른 사람 댓글이 나타남 | 시청 화면에 댓글 영역 없음 | `pollMs` 폴링(처음 실패만 안내), 시청 화면에 한 줄 | 댓글 스타일 추가 |
+| 133 | [04] 프론트 `Comments.test` 수정을 누르면 입력란에 포커스(기존 수정 테스트에 단언 추가) | 실제 브라우저에서 발견: 포커스가 작성란에 남음 | 수정 입력란 `autoFocus` | 전역 `li` 가로 배치를 `.comments li`에서 덮음 |
+| 134 | [병합] 백엔드 `BroadcastDeleteRemovesCommentsApiTest` 녹화방송·종료된 라이브 방송을 삭제하면 그 방송의 댓글도 지워지고 다른 방송 댓글은 남는다 | red 없음: 02·03의 이벤트 발행과 04의 리스너를 병합해 실제로 이어지는지 확인하는 통합 테스트(02·03은 이벤트 발행, 04는 이벤트 수신을 각자 테스트함) | - | - |
 
 참고: 01에서 Spring Security를 넣으면서 기존 상태 변경 테스트(1·2단계) 30곳에 `csrf()`를 붙였다. MediaMTX 내부 훅 요청은 CSRF 검사에서 빼서 그대로다. 소유자 검사 공통 규칙(`Ownership`)과 "방송 삭제됨" 이벤트는 02~04가 쓰는 기반이라 01에서는 쓰는 API가 없고, 02~04의 테스트로 검증한다.
+
+참고: 3단계 02~04는 병행 개발 후 병합했다. 병합 때 화면 두 개(녹화방송 상세·라이브 시청)와 공용 CSS가 충돌해 양쪽을 모두 살려 합쳤고, 02의 비로그인 버튼 테스트는 04의 댓글 영역에도 "로그인" 링크가 생겨 헤더 안에서 찾도록 고쳤다.
