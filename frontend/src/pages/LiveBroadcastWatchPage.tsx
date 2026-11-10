@@ -263,6 +263,8 @@ function TitleEditor({
         <input
           value={title}
           onChange={(e) => setTitle(e.target.value)}
+          // 제목 수정을 누르면 바로 고칠 수 있게 입력란으로 포커스를 옮긴다.
+          autoFocus
           aria-invalid={error ? true : undefined}
           aria-describedby={error ? 'title-error' : undefined}
         />

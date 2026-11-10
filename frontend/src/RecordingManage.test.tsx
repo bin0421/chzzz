@@ -75,6 +75,7 @@ describe('녹화방송 제목 수정', () => {
     await user.click(await screen.findByRole('button', { name: '수정' }))
     const input = screen.getByRole('textbox', { name: '제목' })
     expect(input).toHaveValue('내 방송')
+    expect(input).toHaveFocus()
     await user.clear(input)
     await user.type(input, '바뀐 제목')
     await user.click(screen.getByRole('button', { name: '저장' }))

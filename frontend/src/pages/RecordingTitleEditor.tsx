@@ -34,7 +34,13 @@ export default function RecordingTitleEditor({ recording, onSaved, onCancel, onE
     <form className="title-editor" onSubmit={handleSubmit}>
       <label>
         제목
-        <input value={title} onChange={(e) => setTitle(e.target.value)} aria-invalid={titleError !== undefined} />
+        <input
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          aria-invalid={titleError !== undefined}
+          // 수정을 누르면 바로 고칠 수 있게 입력란으로 포커스를 옮긴다.
+          autoFocus
+        />
       </label>
       {titleError && <p className="field-error">{titleError}</p>}
       <div className="owner-actions">

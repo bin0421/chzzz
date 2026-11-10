@@ -75,6 +75,7 @@ describe('라이브 시청 화면의 소유자 관리 버튼', () => {
     await user.click(await screen.findByRole('button', { name: '제목 수정' }))
     const input = screen.getByLabelText('제목')
     expect(input).toHaveValue('저녁 산책 라이브')
+    expect(input).toHaveFocus()
     await user.clear(input)
     await user.type(input, '새벽 산책 라이브')
     await user.click(screen.getByRole('button', { name: '저장' }))
