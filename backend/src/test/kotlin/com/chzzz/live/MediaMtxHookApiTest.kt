@@ -1,5 +1,6 @@
 package com.chzzz.live
 
+import org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf
 import com.chzzz.TestcontainersConfiguration
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -79,6 +80,7 @@ class MediaMtxHookApiTest {
 
     private fun startLive(title: String = "훅 테스트 라이브"): Started {
         val body = mockMvc.post("/api/live-broadcasts") {
+            with(csrf())
             contentType = MediaType.APPLICATION_JSON
             content = """{"title":"$title"}"""
         }.andExpect { status { isCreated() } }.andReturn().response.contentAsString

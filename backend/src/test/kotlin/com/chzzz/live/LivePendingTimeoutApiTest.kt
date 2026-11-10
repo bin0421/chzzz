@@ -1,5 +1,6 @@
 package com.chzzz.live
 
+import org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf
 import com.chzzz.MutableClock
 import com.chzzz.MutableClockConfiguration
 import com.chzzz.TestcontainersConfiguration
@@ -110,6 +111,7 @@ class LivePendingTimeoutApiTest {
 
     private fun startLive(title: String = "시간 초과 라이브"): Started {
         val body = mockMvc.post("/api/live-broadcasts") {
+            with(csrf())
             contentType = MediaType.APPLICATION_JSON
             content = """{"title":"$title"}"""
         }.andExpect { status { isCreated() } }.andReturn().response.contentAsString

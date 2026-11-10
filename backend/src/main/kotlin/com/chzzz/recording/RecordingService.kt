@@ -1,6 +1,10 @@
 package com.chzzz.recording
 
 import com.chzzz.common.FieldValidationException
+import com.chzzz.common.UnauthenticatedException
+import com.chzzz.member.LoginMember
+import com.chzzz.member.Member
+import com.chzzz.member.MemberRepository
 import com.chzzz.recording.storage.UploadedFileStorage
 import org.springframework.core.io.Resource
 import org.springframework.data.repository.findByIdOrNull
@@ -15,27 +19,31 @@ import java.util.UUID
 class RecordingService(
     private val recordingRepository: RecordingRepository,
     private val uploadedFileStorage: UploadedFileStorage,
+    private val memberRepository: MemberRepository,
 ) {
     /**
      * 영상 출처는 업로드 파일 또는 외부 URL 중 정확히 하나다.
      * 업로드 파일은 입력 검증 → 파일 저장 → 메타데이터 저장 순서로 등록하고, 메타데이터 저장이 실패하면 파일을 지운다.
+     * 등록한 회원이 소유자가 된다.
      */
-    fun register(title: String?, url: String?, file: UploadedFileInput?): Recording {
+    fun register(title: String?, url: String?, file: UploadedFileInput?, member: LoginMember): Recording {
+        val owner = memberRepository.findByIdOrNull(member.id) ?: throw UnauthenticatedException()
         val externalUrl = url?.takeIf { it.isNotBlank() }
         VideoSource.requireExactlyOne(hasFile = file != null, hasUrl = externalUrl != null)
-        return if (file != null) registerUploadedFile(title, file) else registerExternalUrl(title, externalUrl!!)
+        return if (file != null) registerUploadedFile(title, file, owner) else registerExternalUrl(title, externalUrl!!, owner)
     }
 
-    private fun registerExternalUrl(title: String?, url: String): Recording =
+    private fun registerExternalUrl(title: String?, url: String, owner: Member): Recording =
         recordingRepository.save(
             Recording.register(
                 title = title,
                 videoSource = VideoSource.externalUrl(url),
+                owner = owner,
                 now = Instant.now(),
             )
         )
 
-    private fun registerUploadedFile(title: String?, upload: UploadedFileInput): Recording {
+    private fun registerUploadedFile(title: String?, upload: UploadedFileInput, owner: Member): Recording {
         val extension = upload.originalFilename.orEmpty().substringAfterLast('.', "").lowercase()
         if (extension !in ALLOWED_EXTENSIONS) {
             throw FieldValidationException("file", "mp4 또는 webm 파일만 올릴 수 있습니다.")
@@ -44,6 +52,7 @@ class RecordingService(
         val recording = Recording.register(
             title = title,
             videoSource = VideoSource.uploadedFile(storedName),
+            owner = owner,
             now = Instant.now(),
         )
         uploadedFileStorage.save(storedName, upload.content)

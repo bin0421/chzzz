@@ -1,7 +1,7 @@
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
-import { stubFetch } from './test/fetchStub'
+import { requestsTo, stubFetch } from './test/fetchStub'
 import { renderApp } from './test/renderApp'
 
 describe('녹화방송 등록 검증', () => {
@@ -15,7 +15,7 @@ describe('녹화방송 등록 검증', () => {
     await user.click(screen.getByRole('button', { name: '등록' }))
 
     expect(screen.getByLabelText('제목')).toHaveAccessibleDescription('제목을 입력해 주세요.')
-    expect(fetchMock).not.toHaveBeenCalled()
+    expect(requestsTo(fetchMock, 'POST', '/api/recordings')).toHaveLength(0)
   })
 
   it('제목이 100자를 넘으면 서버에 보내지 않고 제목 오류를 보여 준다', async () => {
@@ -29,7 +29,7 @@ describe('녹화방송 등록 검증', () => {
     await user.click(screen.getByRole('button', { name: '등록' }))
 
     expect(screen.getByLabelText('제목')).toHaveAccessibleDescription('제목은 100자 이하로 입력해 주세요.')
-    expect(fetchMock).not.toHaveBeenCalled()
+    expect(requestsTo(fetchMock, 'POST', '/api/recordings')).toHaveLength(0)
   })
 
   it('URL을 비우면 서버에 보내지 않고 URL 오류를 보여 준다', async () => {
@@ -41,7 +41,7 @@ describe('녹화방송 등록 검증', () => {
     await user.click(screen.getByRole('button', { name: '등록' }))
 
     expect(screen.getByLabelText('영상 URL')).toHaveAccessibleDescription('영상 URL을 입력해 주세요.')
-    expect(fetchMock).not.toHaveBeenCalled()
+    expect(requestsTo(fetchMock, 'POST', '/api/recordings')).toHaveLength(0)
   })
 
   it.each([
@@ -57,7 +57,7 @@ describe('녹화방송 등록 검증', () => {
     await user.click(screen.getByRole('button', { name: '등록' }))
 
     expect(screen.getByLabelText('영상 URL')).toHaveAccessibleDescription(message)
-    expect(fetchMock).not.toHaveBeenCalled()
+    expect(requestsTo(fetchMock, 'POST', '/api/recordings')).toHaveLength(0)
   })
 
   it('서버가 400으로 거절하면 errors를 필드별로 보여 주고 등록 화면에 남는다', async () => {

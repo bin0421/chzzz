@@ -1,7 +1,7 @@
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
-import { stubFetch } from './test/fetchStub'
+import { defaultMember, requestsTo, stubFetch } from './test/fetchStub'
 import { renderApp } from './test/renderApp'
 
 const 업로드방송 = {
@@ -14,6 +14,7 @@ const 업로드방송 = {
 
 describe('녹화방송 등록: 업로드 파일', () => {
   it('출처 종류를 전환하면 고른 종류의 입력란만 보인다', async () => {
+    stubFetch([])
     const user = userEvent.setup()
     renderApp('/recordings/new')
 
@@ -42,7 +43,7 @@ describe('녹화방송 등록: 업로드 파일', () => {
 
     expect(await screen.findByRole('heading', { name: '업로드 방송' })).toBeInTheDocument()
     expect(screen.getByTestId('recording-player')).toHaveAttribute('src', '/api/recordings/7/video')
-    const body = fetchMock.mock.calls[0][1]?.body as FormData
+    const body = requestsTo(fetchMock, 'POST', '/api/recordings')[0][1]?.body as FormData
     expect(body.get('title')).toBe('업로드 방송')
     expect(body.get('file')).toBe(video)
     expect(body.has('url')).toBe(false)
@@ -81,6 +82,7 @@ describe('녹화방송 등록: 업로드 파일', () => {
       'fetch',
       vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
         if (init?.method === 'POST') return new Promise<Response>((resolve) => (finishUpload = resolve))
+        if (String(input) === '/api/auth/me') return Promise.resolve(Response.json(defaultMember))
         expect(String(input)).toBe('/api/recordings/7')
         return Promise.resolve(Response.json(업로드방송))
       }),

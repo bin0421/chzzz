@@ -1,5 +1,6 @@
 package com.chzzz.live
 
+import org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf
 import com.chzzz.TestcontainersConfiguration
 import org.hamcrest.Matchers.containsString
 import org.hamcrest.Matchers.matchesPattern
@@ -35,6 +36,7 @@ class LiveBroadcastApiTest {
     @Test
     fun `라이브 방송을 시작하면 201과 대기 상태, 송출 키, WHIP 주소를 돌려준다`() {
         mockMvc.post("/api/live-broadcasts") {
+            with(csrf())
             contentType = MediaType.APPLICATION_JSON
             content = """{"title":"저녁 산책 라이브"}"""
         }.andExpect {
@@ -61,6 +63,7 @@ class LiveBroadcastApiTest {
     @Test
     fun `제목이 비어 있으면 400으로 title 오류를 돌려주고 만들지 않는다`() {
         mockMvc.post("/api/live-broadcasts") {
+            with(csrf())
             contentType = MediaType.APPLICATION_JSON
             content = """{"title":"   "}"""
         }.andExpect {
@@ -117,6 +120,7 @@ class LiveBroadcastApiTest {
 
     private fun startLive(title: String): StartedLive {
         val body = mockMvc.post("/api/live-broadcasts") {
+            with(csrf())
             contentType = MediaType.APPLICATION_JSON
             content = """{"title":"$title"}"""
         }.andExpect { status { isCreated() } }.andReturn().response.contentAsString

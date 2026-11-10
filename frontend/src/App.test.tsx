@@ -1,7 +1,7 @@
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
-import { stubFetch } from './test/fetchStub'
+import { requestsTo, stubFetch } from './test/fetchStub'
 import { renderApp } from './test/renderApp'
 
 const 첫방송 = {
@@ -30,7 +30,7 @@ describe('녹화방송 등록', () => {
       'src',
       'https://cdn.example.com/videos/first.mp4',
     )
-    const body = fetchMock.mock.calls[0][1]?.body as FormData
+    const body = requestsTo(fetchMock, 'POST', '/api/recordings')[0][1]?.body as FormData
     expect(body.get('title')).toBe('첫 방송 다시보기')
     expect(body.get('url')).toBe('https://cdn.example.com/videos/first.mp4')
   })

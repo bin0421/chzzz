@@ -2,7 +2,7 @@ import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { createFakeMediaAdapter } from './test/fakeMediaAdapter'
-import { stubFetch } from './test/fetchStub'
+import { requestsTo, stubFetch } from './test/fetchStub'
 import { renderApp } from './test/renderApp'
 
 const 대기 = {
@@ -36,7 +36,7 @@ describe('라이브 방송 송출', () => {
 
     expect(await screen.findByText('방송 중')).toBeInTheDocument()
     expect(media.adapter.publish).toHaveBeenCalledWith(media.previewStream, '/media/live/7/whip', 'secret-key')
-    const startBody = JSON.parse(fetchMock.mock.calls[0][1]?.body as string)
+    const startBody = JSON.parse(requestsTo(fetchMock, 'POST', '/api/live-broadcasts')[0][1]?.body as string)
     expect(startBody).toEqual({ title: '저녁 산책 라이브' })
   })
 })

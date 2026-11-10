@@ -42,6 +42,7 @@ export default function RecordingDetailPage() {
     <article>
       <h1>{recording.title}</h1>
       <p className="meta">
+        {recording.owner && <span className="owner">{recording.owner.nickname}</span>}
         등록일시 <time dateTime={recording.createdAt}>{formatDateTime(recording.createdAt)}</time>
       </p>
       <Player key={recording.id} src={recording.videoUrl} />

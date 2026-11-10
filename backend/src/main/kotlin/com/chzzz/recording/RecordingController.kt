@@ -1,6 +1,8 @@
 package com.chzzz.recording
 
 import com.chzzz.common.NotFoundException
+import com.chzzz.member.LoginMember
+import com.chzzz.member.MemberResponse
 import org.springframework.core.io.Resource
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.GetMapping
@@ -40,9 +42,10 @@ class RecordingController(
         @RequestParam(required = false) title: String?,
         @RequestParam(required = false) url: String?,
         @RequestParam(required = false) file: MultipartFile?,
+        member: LoginMember,
     ): ResponseEntity<RecordingDetailResponse> {
         val upload = file?.takeIf { !it.isEmpty }?.let { UploadedFileInput(it.originalFilename, it.inputStream) }
-        val recording = recordingService.register(title, url, upload)
+        val recording = recordingService.register(title, url, upload, member)
         return ResponseEntity
             .created(URI.create("/api/recordings/${recording.id}"))
             .body(RecordingDetailResponse.from(recording))
@@ -55,6 +58,7 @@ data class RecordingDetailResponse(
     val sourceType: VideoSourceType,
     val videoUrl: String,
     val createdAt: Instant,
+    val owner: MemberResponse?,
 ) {
     companion object {
         fun from(recording: Recording) = RecordingDetailResponse(
@@ -66,6 +70,7 @@ data class RecordingDetailResponse(
                 VideoSourceType.UPLOADED_FILE -> "/api/recordings/${recording.id}/video"
             },
             createdAt = recording.createdAt,
+            owner = recording.owner?.let(MemberResponse::from),
         )
     }
 }
@@ -75,6 +80,7 @@ data class RecordingSummaryResponse(
     val title: String,
     val sourceType: VideoSourceType,
     val createdAt: Instant,
+    val owner: MemberResponse?,
 ) {
     companion object {
         fun from(recording: Recording) = RecordingSummaryResponse(
@@ -82,6 +88,7 @@ data class RecordingSummaryResponse(
             title = recording.title,
             sourceType = recording.videoSource.type,
             createdAt = recording.createdAt,
+            owner = recording.owner?.let(MemberResponse::from),
         )
     }
 }

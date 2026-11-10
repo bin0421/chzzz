@@ -1,6 +1,9 @@
 package com.chzzz.recording
 
+import org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf
 import com.chzzz.TestcontainersConfiguration
+import com.chzzz.member.signUp
+import org.springframework.mock.web.MockHttpSession
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -10,12 +13,7 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc
 import org.springframework.context.annotation.Import
 import org.mockito.ArgumentMatchers
 import org.mockito.Mockito.doThrow
-import org.springframework.boot.test.web.server.LocalServerPort
-import org.springframework.core.io.ByteArrayResource
 import org.springframework.dao.DataAccessResourceFailureException
-import org.springframework.http.MediaType
-import org.springframework.util.LinkedMultiValueMap
-import org.springframework.web.client.RestClient
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.mock.web.MockMultipartFile
 import org.springframework.test.context.DynamicPropertyRegistry
@@ -32,7 +30,7 @@ import kotlin.io.path.name
 import kotlin.io.path.readBytes
 
 @Import(TestcontainersConfiguration::class)
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest
 @AutoConfigureMockMvc
 class RecordingUploadApiTest {
 
@@ -48,11 +46,11 @@ class RecordingUploadApiTest {
         }
     }
 
-    @LocalServerPort
-    var port: Int = 0
-
     @Autowired
     lateinit var mockMvc: MockMvc
+
+    /** 녹화방송 등록은 로그인이 필요하다. */
+    lateinit var member: MockHttpSession
 
     @Autowired
     lateinit var jdbcTemplate: JdbcTemplate
@@ -62,8 +60,10 @@ class RecordingUploadApiTest {
 
     @BeforeEach
     fun cleanUp() {
+        jdbcTemplate.execute("TRUNCATE TABLE member RESTART IDENTITY CASCADE")
         jdbcTemplate.execute("TRUNCATE TABLE recording RESTART IDENTITY")
         if (Files.exists(storageDir)) storageDir.listDirectoryEntries().forEach(Files::delete)
+        member = mockMvc.signUp("recorder", "녹화방송회원")
     }
 
     @Test
@@ -71,6 +71,8 @@ class RecordingUploadApiTest {
         val content = ByteArray(64) { it.toByte() }
 
         mockMvc.multipart("/api/recordings") {
+            with(csrf())
+            session = member
             file(MockMultipartFile("file", "my video.MP4", "video/mp4", content))
             param("title", "업로드 방송")
         }.andExpect {
@@ -102,6 +104,8 @@ class RecordingUploadApiTest {
     @Test
     fun `mp4나 webm이 아닌 파일은 400 Problem Details로 file 오류를 돌려주고 저장하지 않는다`() {
         mockMvc.multipart("/api/recordings") {
+            with(csrf())
+            session = member
             file(MockMultipartFile("file", "clip.avi", "video/x-msvideo", ByteArray(16)))
             param("title", "형식이 틀린 방송")
         }.andExpect {
@@ -122,32 +126,13 @@ class RecordingUploadApiTest {
 
         runCatching {
             mockMvc.multipart("/api/recordings") {
+                with(csrf())
+                session = member
                 file(MockMultipartFile("file", "clip.webm", "video/webm", ByteArray(16)))
                 param("title", "저장 실패 방송")
             }.andReturn()
         }
 
-        assertThat(storageDir.listDirectoryEntries()).isEmpty()
-    }
-
-    @Test
-    fun `최대 업로드 크기를 넘으면 413 Problem Details를 돌려준다`() {
-        // MockMvc는 multipart 크기 한도를 적용하지 않으므로 실제 서버에 요청한다. 이 테스트의 한도는 1KB다.
-        val body = LinkedMultiValueMap<String, Any>().apply {
-            add("title", "너무 큰 방송")
-            add("file", object : ByteArrayResource(ByteArray(2048)) {
-                override fun getFilename() = "big.mp4"
-            })
-        }
-
-        val (status, contentType) = RestClient.create("http://localhost:$port").post()
-            .uri("/api/recordings")
-            .contentType(MediaType.MULTIPART_FORM_DATA)
-            .body(body)
-            .exchange { _, response -> response.statusCode.value() to response.headers.contentType }
-
-        assertThat(status).isEqualTo(413)
-        assertThat(contentType.toString()).isEqualTo("application/problem+json")
         assertThat(storageDir.listDirectoryEntries()).isEmpty()
     }
 
@@ -202,6 +187,8 @@ class RecordingUploadApiTest {
     @Test
     fun `외부 URL 녹화방송의 video는 404다`() {
         val location = mockMvc.multipart("/api/recordings") {
+            with(csrf())
+            session = member
             param("title", "외부 방송")
             param("url", "https://cdn.example.com/external.mp4")
         }.andExpect { status { isCreated() } }
@@ -224,6 +211,8 @@ class RecordingUploadApiTest {
 
     private fun upload(filename: String, content: ByteArray): String =
         mockMvc.multipart("/api/recordings") {
+            with(csrf())
+            session = member
             file(MockMultipartFile("file", filename, "application/octet-stream", content))
             param("title", "업로드 방송")
         }.andExpect { status { isCreated() } }

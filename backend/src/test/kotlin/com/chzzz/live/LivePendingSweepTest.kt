@@ -1,5 +1,6 @@
 package com.chzzz.live
 
+import org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf
 import com.chzzz.MutableClock
 import com.chzzz.MutableClockConfiguration
 import com.chzzz.TestcontainersConfiguration
@@ -40,6 +41,7 @@ class LivePendingSweepTest {
     @Test
     fun `조회가 없어도 주기 정리 작업이 시간 초과된 대기를 종료로 바꾼다`() {
         mockMvc.post("/api/live-broadcasts") {
+            with(csrf())
             contentType = MediaType.APPLICATION_JSON
             content = """{"title":"아무도 보지 않는 라이브"}"""
         }.andExpect { status { isCreated() } }

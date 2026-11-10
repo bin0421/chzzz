@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { MediaAccessError } from './media/MediaAdapter'
 import { createFakeMediaAdapter } from './test/fakeMediaAdapter'
-import { stubFetch } from './test/fetchStub'
+import { requestsTo, stubFetch } from './test/fetchStub'
 import { renderApp } from './test/renderApp'
 
 const 대기 = {
@@ -214,7 +214,7 @@ describe('송출 화면 제목 검증', () => {
     await user.click(await screen.findByRole('button', { name: '방송 시작' }))
 
     expect(screen.getByLabelText('제목')).toHaveAccessibleDescription('제목을 입력해 주세요.')
-    expect(fetchMock).not.toHaveBeenCalled()
+    expect(requestsTo(fetchMock, 'POST', '/api/live-broadcasts')).toHaveLength(0)
     expect(media.adapter.publish).not.toHaveBeenCalled()
   })
 

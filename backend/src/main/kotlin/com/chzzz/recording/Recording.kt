@@ -1,12 +1,15 @@
 package com.chzzz.recording
 
 import com.chzzz.common.Title
+import com.chzzz.member.Member
 import jakarta.persistence.Column
 import jakarta.persistence.Embedded
 import jakarta.persistence.Entity
 import jakarta.persistence.GeneratedValue
 import jakarta.persistence.GenerationType
 import jakarta.persistence.Id
+import jakarta.persistence.JoinColumn
+import jakarta.persistence.ManyToOne
 import jakarta.persistence.Table
 import java.time.Instant
 import java.time.temporal.ChronoUnit
@@ -23,14 +26,19 @@ class Recording private constructor(
 
     @Column(nullable = false)
     val createdAt: Instant,
+
+    /** 소유자. 회원 기능 이전에 등록된 녹화방송은 null이다. */
+    @ManyToOne
+    @JoinColumn(name = "owner_id")
+    val owner: Member?,
 ) {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     val id: Long? = null
 
     companion object {
-        fun register(title: String?, videoSource: VideoSource, now: Instant): Recording =
+        fun register(title: String?, videoSource: VideoSource, owner: Member, now: Instant): Recording =
             // PostgreSQL timestamptz는 마이크로초까지 저장한다. 응답과 저장값이 어긋나지 않도록 맞춘다.
-            Recording(Title.normalize(title), videoSource, now.truncatedTo(ChronoUnit.MICROS))
+            Recording(Title.normalize(title), videoSource, now.truncatedTo(ChronoUnit.MICROS), owner)
     }
 }

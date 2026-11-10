@@ -1,5 +1,6 @@
 package com.chzzz.live
 
+import org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf
 import com.chzzz.TestcontainersConfiguration
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -54,6 +55,7 @@ class StreamKeyExposureApiTest {
         mockMvc.get("/api/live-broadcasts/999").andExpect { status { isNotFound() } }.assertNoSecretOf(live)
         mockMvc.get("/api/live-broadcasts/abc").assertNoSecretOf(live)
         mockMvc.post("/api/live-broadcasts") {
+            with(csrf())
             contentType = MediaType.APPLICATION_JSON
             content = """{"title":""}"""
         }.andExpect { status { isBadRequest() } }.assertNoSecretOf(live)
@@ -75,6 +77,7 @@ class StreamKeyExposureApiTest {
 
     private fun startLive(title: String = "노출 확인 라이브"): Started {
         val body = mockMvc.post("/api/live-broadcasts") {
+            with(csrf())
             contentType = MediaType.APPLICATION_JSON
             content = """{"title":"$title"}"""
         }.andExpect { status { isCreated() } }.andReturn().response.contentAsString

@@ -1,6 +1,9 @@
 package com.chzzz.recording
 
+import org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf
 import com.chzzz.TestcontainersConfiguration
+import com.chzzz.member.signUp
+import org.springframework.mock.web.MockHttpSession
 import org.hamcrest.Matchers.matchesPattern
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -21,17 +24,24 @@ class RecordingApiTest {
     @Autowired
     lateinit var mockMvc: MockMvc
 
+    /** 녹화방송 등록은 로그인이 필요하다. */
+    lateinit var member: MockHttpSession
+
     @Autowired
     lateinit var jdbcTemplate: JdbcTemplate
 
     @BeforeEach
     fun cleanUp() {
+        jdbcTemplate.execute("TRUNCATE TABLE member RESTART IDENTITY CASCADE")
         jdbcTemplate.execute("TRUNCATE TABLE recording RESTART IDENTITY")
+        member = mockMvc.signUp("recorder", "녹화방송회원")
     }
 
     @Test
     fun `외부 URL로 녹화방송을 등록하면 201과 상세를 돌려준다`() {
         mockMvc.multipart("/api/recordings") {
+            with(csrf())
+            session = member
             param("title", "첫 방송 다시보기")
             param("url", "https://cdn.example.com/videos/first.mp4")
         }.andExpect {
@@ -77,6 +87,8 @@ class RecordingApiTest {
     @Test
     fun `등록 응답의 등록일시는 이후 조회한 등록일시와 같다`() {
         val created = mockMvc.multipart("/api/recordings") {
+            with(csrf())
+            session = member
             param("title", "시각 비교 방송")
             param("url", "https://cdn.example.com/time.mp4")
         }.andReturn().response
@@ -90,6 +102,8 @@ class RecordingApiTest {
     @Test
     fun `제목이 비어 있으면 400 Problem Details로 title 오류를 돌려준다`() {
         mockMvc.multipart("/api/recordings") {
+            with(csrf())
+            session = member
             param("title", "   ")
             param("url", "https://cdn.example.com/no-title.mp4")
         }.andExpect {
@@ -107,6 +121,8 @@ class RecordingApiTest {
 
     private fun register(title: String, url: String): String =
         mockMvc.multipart("/api/recordings") {
+            with(csrf())
+            session = member
             param("title", title)
             param("url", url)
         }.andExpect { status { isCreated() } }

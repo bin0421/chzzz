@@ -28,6 +28,7 @@ export default function RecordingListPage() {
             <li key={recording.id}>
               <Link to={`/recordings/${recording.id}`}>{recording.title}</Link>
               <span className="meta">
+                {recording.owner && <span className="owner">{recording.owner.nickname}</span>}
                 <time dateTime={recording.createdAt}>{formatDateTime(recording.createdAt)}</time>
                 <span className="badge">{formatSourceType(recording.sourceType)}</span>
               </span>
