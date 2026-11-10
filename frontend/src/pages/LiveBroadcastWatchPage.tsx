@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { api, ApiError, type LiveBroadcastDetail } from '../api'
+import CommentSection from '../comments/CommentSection'
 import { formatDateTime } from '../format'
 import { useMediaAdapter } from '../media/MediaAdapter'
 
@@ -130,6 +131,7 @@ export default function LiveBroadcastWatchPage() {
           )}
         </>
       )}
+      <CommentSection kind="live" id={broadcast.id} pollMs={DETAIL_POLL_MS} />
     </article>
   )
 }

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { api, ApiError, type RecordingDetail } from '../api'
+import CommentSection from '../comments/CommentSection'
 import { formatDateTime } from '../format'
 
 type State =
@@ -46,6 +47,7 @@ export default function RecordingDetailPage() {
         등록일시 <time dateTime={recording.createdAt}>{formatDateTime(recording.createdAt)}</time>
       </p>
       <Player key={recording.id} src={recording.videoUrl} />
+      <CommentSection kind="recording" id={recording.id} />
     </article>
   )
 }
