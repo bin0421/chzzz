@@ -19,3 +19,13 @@
 - [ ] 프론트 방송 목록 라이브 섹션에 소유자 닉네임
 - [ ] 새 테스트는 새 파일에 둔다. 1·2단계·01 테스트는 모두 green(바꾼 2단계 테스트는 이유를 Comments에 적는다)
 - [ ] 모든 사이클이 기록되어 있다. 병행 중이라 `docs/tdd-log.md` 대신 이 파일의 `## TDD 기록`에 남기고, 병합할 때 옮긴다
+
+## TDD 기록
+
+| 테스트 이름 | red 이유 | green 변경 | 리팩터 |
+| --- | --- | --- | --- |
+| `LiveBroadcastOwnerApiTest` 로그인하지 않고 라이브 방송을 시작하면 401이고 만들어지지 않는다 | 비로그인 시작이 `201`로 만들어짐 | 시작 컨트롤러에 `LoginMember` 파라미터. 2단계 라이브 테스트 9개의 시작 요청에 가입 세션(`signUpSomeone`)을 실음 | 시작 도우미 `startLiveAs`·`signUpSomeone`을 `LiveTestSupport`로 |
+| `LiveBroadcastOwnerApiTest` 시작한 회원이 소유자가 되고 시작·목록·상세에 소유자 닉네임 / 회원 기능 이전 방송은 소유자 없음 | 응답에 `owner` 없음 | `LiveBroadcast.owner`(`owner_id`) 매핑, 시작 시 회원 기록, 세 응답에 `owner` | 목록 조회에 `@EntityGraph(owner)` |
+| `LiveBroadcastControlApiTest` 종료: 다른 탭의 소유자 200, 비로그인 401(송출 키 있어도), 다른 회원 403(송출 키 있어도), 소유자 없음 403, 404·409, 401이 404보다 먼저 | 송출 키 없는 소유자 `403`, 키 가진 비로그인·다른 회원 `200`, 비로그인 없는 방송 `404` | 종료를 `LoginMember` + `Ownership.requireOwner`로. 송출 키 헤더 처리 삭제. `LiveBroadcastEndApiTest`(2단계)를 소유자 세션 기준으로 바꿈 | - |
+| `LiveBroadcastControlApiTest` 제목 수정: 대기·방송 중·종료 모두 200, 401·403·403(소유자 없음)·404 뒤 그대로, 빈 제목 400 | `PATCH` 없음(`405`) | `PATCH /api/live-broadcasts/{id}`, `LiveBroadcast.rename`(공통 `Title` 규칙) | - |
+| `LiveBroadcastControlApiTest` 삭제: 종료면 204·사라짐·"방송 삭제됨" 이벤트, 대기·방송 중 409, 401·403·403·404 뒤 그대로 | `DELETE` 없음(`405`) | `DELETE /api/live-broadcasts/{id}`, 종료 아니면 `409`, `BroadcastDeletedEvent(LIVE_BROADCAST, id)` 발행 | - |

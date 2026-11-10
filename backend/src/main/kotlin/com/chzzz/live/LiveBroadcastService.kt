@@ -1,8 +1,14 @@
 package com.chzzz.live
 
+import com.chzzz.common.BroadcastDeletedEvent
+import com.chzzz.common.BroadcastType
 import com.chzzz.common.ConflictException
-import com.chzzz.common.ForbiddenException
 import com.chzzz.common.NotFoundException
+import com.chzzz.common.Ownership
+import com.chzzz.common.UnauthenticatedException
+import com.chzzz.member.LoginMember
+import com.chzzz.member.MemberRepository
+import org.springframework.context.ApplicationEventPublisher
 import org.springframework.data.repository.findByIdOrNull
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -13,14 +19,17 @@ import java.time.Duration
 @Service
 class LiveBroadcastService(
     private val repository: LiveBroadcastRepository,
+    private val memberRepository: MemberRepository,
+    private val events: ApplicationEventPublisher,
     private val clock: Clock,
     @Value("\${live.pending-timeout}") private val pendingTimeout: Duration,
 ) {
-    /** 라이브 방송을 대기 상태로 만들고, 송출 키 원문은 결과로 한 번만 돌려준다. */
+    /** 라이브 방송을 대기 상태로 만들고, 송출 키 원문은 결과로 한 번만 돌려준다. 시작한 회원이 소유자가 된다. */
     @Transactional
-    fun start(title: String?): StartedLiveBroadcast {
+    fun start(title: String?, member: LoginMember): StartedLiveBroadcast {
+        val owner = memberRepository.findByIdOrNull(member.id) ?: throw UnauthenticatedException()
         val streamKey = StreamKey.generate()
-        val broadcast = repository.save(LiveBroadcast.start(title, StreamKey.hash(streamKey), clock.instant()))
+        val broadcast = repository.save(LiveBroadcast.start(title, StreamKey.hash(streamKey), owner, clock.instant()))
         return StartedLiveBroadcast(broadcast, streamKey)
     }
 
@@ -48,17 +57,36 @@ class LiveBroadcastService(
     fun find(id: Long): LiveBroadcast =
         findCurrent(id) ?: throw NotFoundException("라이브 방송을 찾을 수 없습니다.")
 
-    /** 송출자 종료: 송출 키가 맞아야 하고, 이미 종료된 방송은 다시 종료할 수 없다. */
+    /** 소유자 종료: 세션의 회원이 소유자여야 하고, 이미 종료된 방송은 다시 종료할 수 없다. */
     @Transactional
-    fun end(id: Long, streamKey: String?): LiveBroadcast {
+    fun end(id: Long, member: LoginMember): LiveBroadcast {
         val broadcast = find(id)
-        if (!StreamKey.matches(streamKey, broadcast.streamKeyHash)) {
-            throw ForbiddenException("송출 키가 없거나 맞지 않습니다.")
-        }
+        Ownership.requireOwner(broadcast.owner?.id, member)
         if (!broadcast.end(clock.instant())) {
             throw ConflictException("이미 종료된 라이브 방송입니다.")
         }
         return broadcast
+    }
+
+    /** 소유자 제목 수정: 어느 상태에서나 할 수 있다. */
+    @Transactional
+    fun rename(id: Long, title: String?, member: LoginMember): LiveBroadcast {
+        val broadcast = find(id)
+        Ownership.requireOwner(broadcast.owner?.id, member)
+        broadcast.rename(title)
+        return broadcast
+    }
+
+    /** 소유자 삭제: 종료된 방송만 지울 수 있다. 지운 뒤 "방송 삭제됨" 이벤트로 댓글 정리를 알린다. */
+    @Transactional
+    fun delete(id: Long, member: LoginMember) {
+        val broadcast = find(id)
+        Ownership.requireOwner(broadcast.owner?.id, member)
+        if (broadcast.status != LiveBroadcastStatus.ENDED) {
+            throw ConflictException("방송을 먼저 종료해 주세요.")
+        }
+        repository.delete(broadcast)
+        events.publishEvent(BroadcastDeletedEvent(BroadcastType.LIVE_BROADCAST, id))
     }
 
     /** 대기·방송 중인 라이브 방송을 모두 종료한다(재시작 정리). 종료한 개수를 돌려준다. */
