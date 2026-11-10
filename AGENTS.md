@@ -44,7 +44,7 @@
   - 녹화방송 메타데이터를 영속 저장하고 조회한다. 재시작 후에도 남아야 한다.
   - 로그인 없이 등록·조회 화면과 서버 기능을 이용한다.
   - README에 실행 방법·환경변수 예시·구현 범위·직접 확인 절차를 적는다.
-- 요구사항 (2단계, 진행 중):
+- 요구사항 (2단계, 완료):
   - 1단계 기능 코드를 그대로 유지한다.
   - 휴대폰 카메라·마이크로 라이브 방송을 시작하고 종료한다.
   - 시청자는 방송 목록에서 라이브 방송을 골라 시청한다. 방송 중·종료 상태를 구분해 표시한다.
@@ -52,10 +52,10 @@
   - README에 휴대폰 연결·카메라·마이크 권한·접속 환경·송출 시작·종료 확인 절차, 실행 방법·환경변수 예시·구현 범위·직접 확인 절차를 적는다.
 - 범위: 1단계는 등록·목록·상세·재생만(수정·삭제·검색·페이지네이션·썸네일 제외, 외부 URL은 `<video>`로 바로 재생되는 주소만). 2단계는 송출 시작·종료와 시청, 상태 표시만(다시보기 저장·시청자 수·채팅·TURN 제외). 범위 밖은 README에 명시한다.
 - 기술 스택: 백엔드 Spring Boot 4.1.x + Kotlin, JDK 21, Gradle Kotlin DSL(wrapper). 프론트엔드 React + Vite + TypeScript, React Router, `fetch`. DB PostgreSQL(Docker Compose). 업로드 파일은 로컬 디스크(`RECORDING_STORAGE_DIR`)에 두고 Range 요청으로 스트리밍한다. 라이브 송출은 WebRTC WHIP/WHEP + MediaMTX(ADR-0003), 휴대폰 HTTPS는 Caddy 로컬 CA(ADR-0004).
-- 구조: 루트에 `backend/`, `frontend/`, `docker-compose.yml`, `README.md`.
+- 구조: 루트에 `backend/`, `frontend/`, `docker-compose.yml`, `README.md`. 라이브 송출 설정은 `mediamtx/`(MediaMTX), `caddy/`(HTTPS)에 둔다.
 - 실행: `docker compose up --build`로 전체 실행(채점용, 휴대폰은 `https://<PUBLIC_HOST>:8443`)과, `db`·`mediamtx`만 compose + `./gradlew bootRun` + `npm run dev`(개발용, PC `localhost`)를 모두 지원한다. 휴대폰 확인은 전체 실행에서만 한다.
 - 테스트: 백엔드 JUnit 5 + Spring Boot Test + Testcontainers(PostgreSQL), MediaMTX 훅은 내부 엔드포인트 호출로 흉내 낸다. 프론트 Vitest + React Testing Library, `fetch`와 미디어 어댑터(카메라·WebRTC)만 가짜로 바꾼다. E2E 자동화 대신 README의 직접 확인 절차.
-- 진행: 과제는 4단계로 진행하며 현재 2단계다. 각 단계의 기능은 그 단계에서만 구현한다.
+- 진행: 과제는 4단계로 진행하며 2단계까지 끝났고 다음은 3단계다. 각 단계의 기능은 그 단계에서만 구현한다.
   1. 녹화방송 등록·시청 (TDD)
   2. 라이브 방송 송출
   3. 인증·인가, 댓글
