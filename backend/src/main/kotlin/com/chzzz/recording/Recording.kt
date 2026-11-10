@@ -18,8 +18,7 @@ import java.time.temporal.ChronoUnit
 @Entity
 @Table(name = "recording")
 class Recording private constructor(
-    @Column(nullable = false, length = 100)
-    val title: String,
+    title: String,
 
     @Embedded
     val videoSource: VideoSource,
@@ -35,6 +34,15 @@ class Recording private constructor(
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     val id: Long? = null
+
+    @Column(nullable = false, length = 100)
+    var title: String = title
+        protected set
+
+    /** 제목을 바꾼다. 규칙은 등록과 같다. */
+    fun rename(newTitle: String?) {
+        title = Title.normalize(newTitle)
+    }
 
     companion object {
         fun register(title: String?, videoSource: VideoSource, owner: Member, now: Instant): Recording =
