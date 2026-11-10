@@ -253,3 +253,34 @@ video {
   font-weight: 600;
   color: var(--text);
 }
+
+/* 3단계: 소유자 관리 버튼(수정·삭제)과 제목 인라인 수정 */
+.owner-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin: 0 0 0.75rem;
+}
+
+.owner-actions button {
+  padding: 0.4rem 0.9rem;
+  font: inherit;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.title-editor label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin: 1rem 0 0.5rem;
+  font-weight: 600;
+}
+
+.title-editor input {
+  padding: 0.5rem;
+  font: inherit;
+  font-size: 1.25rem;
+}

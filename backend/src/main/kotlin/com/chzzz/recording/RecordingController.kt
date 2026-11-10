@@ -5,9 +5,12 @@ import com.chzzz.member.LoginMember
 import com.chzzz.member.MemberResponse
 import org.springframework.core.io.Resource
 import org.springframework.http.ResponseEntity
+import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
+import org.springframework.web.bind.annotation.PatchMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
+import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
@@ -37,6 +40,19 @@ class RecordingController(
         return ResponseEntity.ok().contentType(video.mediaType).body(video.resource)
     }
 
+    @PatchMapping("/{id}")
+    fun rename(
+        @PathVariable id: Long,
+        @RequestBody request: RecordingTitleRequest,
+        member: LoginMember,
+    ): RecordingDetailResponse = RecordingDetailResponse.from(recordingService.rename(id, request.title, member))
+
+    @DeleteMapping("/{id}")
+    fun delete(@PathVariable id: Long, member: LoginMember): ResponseEntity<Void> {
+        recordingService.delete(id, member)
+        return ResponseEntity.noContent().build()
+    }
+
     @PostMapping
     fun register(
         @RequestParam(required = false) title: String?,
@@ -51,6 +67,10 @@ class RecordingController(
             .body(RecordingDetailResponse.from(recording))
     }
 }
+
+data class RecordingTitleRequest(
+    val title: String? = null,
+)
 
 data class RecordingDetailResponse(
     val id: Long,
