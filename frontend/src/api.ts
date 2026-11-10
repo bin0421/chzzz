@@ -116,6 +116,14 @@ export const api = {
   getRecording(id: string) {
     return request<RecordingDetail>(`/api/recordings/${id}`)
   },
+  /** 소유자만 할 수 있다(비로그인 401, 다른 회원 403). */
+  updateRecordingTitle(id: number, title: string) {
+    return request<RecordingDetail>(`/api/recordings/${id}`, json('PATCH', { title }))
+  },
+  /** 소유자만 할 수 있다(비로그인 401, 다른 회원 403). */
+  deleteRecording(id: number) {
+    return request<void>(`/api/recordings/${id}`, { method: 'DELETE' })
+  },
   listLiveBroadcasts() {
     return request<LiveBroadcastSummary[]>('/api/live-broadcasts')
   },
