@@ -26,6 +26,9 @@ class LivePendingSweepTest {
     @Autowired
     lateinit var mockMvc: MockMvc
 
+    // 3단계부터 라이브 방송 시작에는 로그인이 필요하다.
+    private val owner by lazy { mockMvc.signUpSomeone() }
+
     @Autowired
     lateinit var jdbcTemplate: JdbcTemplate
 
@@ -42,6 +45,7 @@ class LivePendingSweepTest {
     fun `조회가 없어도 주기 정리 작업이 시간 초과된 대기를 종료로 바꾼다`() {
         mockMvc.post("/api/live-broadcasts") {
             with(csrf())
+            session = owner
             contentType = MediaType.APPLICATION_JSON
             content = """{"title":"아무도 보지 않는 라이브"}"""
         }.andExpect { status { isCreated() } }

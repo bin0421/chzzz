@@ -27,6 +27,9 @@ class LivePendingTimeoutApiTest {
     @Autowired
     lateinit var mockMvc: MockMvc
 
+    // 3단계부터 라이브 방송 시작에는 로그인이 필요하다.
+    private val owner by lazy { mockMvc.signUpSomeone() }
+
     @Autowired
     lateinit var jdbcTemplate: JdbcTemplate
 
@@ -112,6 +115,7 @@ class LivePendingTimeoutApiTest {
     private fun startLive(title: String = "시간 초과 라이브"): Started {
         val body = mockMvc.post("/api/live-broadcasts") {
             with(csrf())
+            session = owner
             contentType = MediaType.APPLICATION_JSON
             content = """{"title":"$title"}"""
         }.andExpect { status { isCreated() } }.andReturn().response.contentAsString

@@ -10,14 +10,9 @@ import {
 } from '../media/MediaAdapter'
 import { validateTitle } from '../titleRule'
 
-type Phase = 'ready' | 'starting' | 'live' | 'resumed' | 'ended'
-
-/** 송출 중인 라이브 방송을 종료하는 데 필요한 것. */
-type OwnBroadcast = { id: number; streamKey: string }
+type Phase = 'ready' | 'starting' | 'live' | 'ended'
 
 const STATUS_POLL_MS = 3000
-/** 탭 단위 저장소 키. 새로고침해도 같은 탭에서는 송출 키로 종료할 수 있게 한다. */
-const OWN_BROADCAST_KEY = 'chzzz.ownLiveBroadcast'
 
 const CAMERAS: Array<{ facing: CameraFacing; label: string }> = [
   { facing: 'user', label: '전면 카메라' },
@@ -55,7 +50,7 @@ export default function LiveBroadcastNewPage() {
   const media = useMediaAdapter()
   const [title, setTitle] = useState('')
   const [titleError, setTitleError] = useState<string>()
-  const [phase, setPhase] = useState<Phase>(() => (loadOwnBroadcast() ? 'resumed' : 'ready'))
+  const [phase, setPhase] = useState<Phase>('ready')
   const [facing, setFacing] = useState<CameraFacing>('user')
   const [preview, setPreview] = useState<MediaStream | null>(null)
   const [previewError, setPreviewError] = useState<MediaAccessFailure | 'unknown'>()
@@ -63,7 +58,6 @@ export default function LiveBroadcastNewPage() {
   const [liveId, setLiveId] = useState<number>()
   const previewRef = useRef<HTMLVideoElement>(null)
   const publicationRef = useRef<Publication | null>(null)
-  const ownRef = useRef<OwnBroadcast | null>(loadOwnBroadcast())
 
   // 카메라를 바꾸면 이전 카메라를 끄고 새로 연다. 휴대폰은 두 카메라를 동시에 열지 못한다.
   useEffect(() => {
@@ -109,14 +103,11 @@ export default function LiveBroadcastNewPage() {
       setPhase('ready')
       return
     }
-    ownRef.current = { id: started.id, streamKey: started.streamKey }
-    saveOwnBroadcast(ownRef.current)
+    // 송출 키는 MediaMTX 송출 허가에만 쓰고 저장하지 않는다. 종료는 소유자 세션으로 한다(ADR-0006).
     try {
       publicationRef.current = await media.publish(preview, started.whipUrl, started.streamKey)
     } catch {
       // 대기로 남은 라이브 방송은 대기 시간이 지나면 서버가 종료로 정리한다.
-      ownRef.current = null
-      saveOwnBroadcast(null)
       setStartError(CONNECTION_FAILED)
       setPhase('ready')
       return
@@ -125,8 +116,6 @@ export default function LiveBroadcastNewPage() {
       // 영상이 서버에 닿기 전에 대기 시간이 지났다.
       await publicationRef.current.stop()
       publicationRef.current = null
-      ownRef.current = null
-      saveOwnBroadcast(null)
       setStartError(CONNECTION_FAILED)
       setPhase('ready')
       return
@@ -138,10 +127,7 @@ export default function LiveBroadcastNewPage() {
   async function handleEnd() {
     await publicationRef.current?.stop()
     publicationRef.current = null
-    const own = ownRef.current
-    if (own) await endOrAlreadyEnded(own)
-    ownRef.current = null
-    saveOwnBroadcast(null)
+    if (liveId !== undefined) await endOrAlreadyEnded(liveId)
     preview?.getTracks().forEach((track) => track.stop())
     setPreview(null)
     setPhase('ended')
@@ -163,20 +149,14 @@ export default function LiveBroadcastNewPage() {
       />
       {phase === 'ended' ? (
         <p role="status">방송이 종료되었습니다.</p>
-      ) : phase === 'live' || phase === 'resumed' ? (
+      ) : phase === 'live' ? (
         <>
-          {phase === 'live' ? (
-            <>
-              <p className="live-status" role="status">
-                <span className="badge live">방송 중</span>
-              </p>
-              <p className="watch-link">
-                시청 화면: <Link to={`/live/${liveId}`}>{`${window.location.origin}/live/${liveId}`}</Link>
-              </p>
-            </>
-          ) : (
-            <p>이 탭에서 시작한 라이브 방송이 있습니다.</p>
-          )}
+          <p className="live-status" role="status">
+            <span className="badge live">방송 중</span>
+          </p>
+          <p className="watch-link">
+            시청 화면: <Link to={`/live/${liveId}`}>{`${window.location.origin}/live/${liveId}`}</Link>
+          </p>
           <button type="button" onClick={handleEnd}>
             방송 종료
           </button>
@@ -221,29 +201,11 @@ export default function LiveBroadcastNewPage() {
 }
 
 /** 종료 API를 부른다. 끊김으로 이미 종료됐으면(409) 그대로 종료된 것으로 본다. */
-async function endOrAlreadyEnded(own: OwnBroadcast) {
+async function endOrAlreadyEnded(id: number) {
   try {
-    await api.endLiveBroadcast(own.id, own.streamKey)
+    await api.endLiveBroadcast(id)
   } catch (error) {
     if (!(error instanceof ApiError && error.status === 409)) throw error
-  }
-}
-
-function loadOwnBroadcast(): OwnBroadcast | null {
-  try {
-    const saved = sessionStorage.getItem(OWN_BROADCAST_KEY)
-    return saved ? (JSON.parse(saved) as OwnBroadcast) : null
-  } catch {
-    return null
-  }
-}
-
-function saveOwnBroadcast(own: OwnBroadcast | null) {
-  try {
-    if (own) sessionStorage.setItem(OWN_BROADCAST_KEY, JSON.stringify(own))
-    else sessionStorage.removeItem(OWN_BROADCAST_KEY)
-  } catch {
-    // 저장소를 못 쓰면 새로고침 뒤 종료만 못 할 뿐이다. 그때는 끊김 훅이 방송을 종료한다.
   }
 }
 

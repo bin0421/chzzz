@@ -1,12 +1,14 @@
 package com.chzzz.live
 
-import org.springframework.http.HttpHeaders
+import com.chzzz.member.LoginMember
+import com.chzzz.member.MemberResponse
 import org.springframework.http.ResponseEntity
+import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
+import org.springframework.web.bind.annotation.PatchMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
-import org.springframework.web.bind.annotation.RequestHeader
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RestController
 import java.net.URI
@@ -24,24 +26,33 @@ class LiveBroadcastController(
     fun detail(@PathVariable id: Long): LiveBroadcastDetailResponse =
         LiveBroadcastDetailResponse.from(service.find(id))
 
-    /** 송출자 종료. 송출 키는 `Authorization: Bearer <송출 키>`로 받는다. */
+    /** 소유자 종료. 세션의 회원으로 검사하고 송출 키는 보지 않는다(ADR-0006). */
     @PostMapping("/{id}/end")
-    fun end(
+    fun end(@PathVariable id: Long, member: LoginMember): LiveBroadcastDetailResponse =
+        LiveBroadcastDetailResponse.from(service.end(id, member))
+
+    /** 소유자 제목 수정. */
+    @PatchMapping("/{id}")
+    fun rename(
         @PathVariable id: Long,
-        @RequestHeader(HttpHeaders.AUTHORIZATION, required = false) authorization: String?,
+        @RequestBody request: RenameLiveBroadcastRequest,
+        member: LoginMember,
     ): LiveBroadcastDetailResponse =
-        LiveBroadcastDetailResponse.from(service.end(id, bearerToken(authorization)))
+        LiveBroadcastDetailResponse.from(service.rename(id, request.title, member))
 
-    private fun bearerToken(authorization: String?): String? =
-        authorization?.takeIf { it.startsWith(BEARER_PREFIX) }?.removePrefix(BEARER_PREFIX)?.trim()
-
-    private companion object {
-        const val BEARER_PREFIX = "Bearer "
+    /** 소유자 삭제. 종료된 방송만 지울 수 있다. */
+    @DeleteMapping("/{id}")
+    fun delete(@PathVariable id: Long, member: LoginMember): ResponseEntity<Void> {
+        service.delete(id, member)
+        return ResponseEntity.noContent().build()
     }
 
     @PostMapping
-    fun start(@RequestBody request: StartLiveBroadcastRequest): ResponseEntity<StartedLiveBroadcastResponse> {
-        val started = service.start(request.title)
+    fun start(
+        @RequestBody request: StartLiveBroadcastRequest,
+        member: LoginMember,
+    ): ResponseEntity<StartedLiveBroadcastResponse> {
+        val started = service.start(request.title, member)
         val broadcast = started.broadcast
         return ResponseEntity
             .created(URI.create("/api/live-broadcasts/${broadcast.id}"))
@@ -53,6 +64,7 @@ class LiveBroadcastController(
                     streamKey = started.streamKey,
                     whipUrl = MediaPaths.whipUrl(broadcast.id!!),
                     createdAt = broadcast.createdAt,
+                    owner = MemberResponse.from(member),
                 )
             )
     }
@@ -60,12 +72,15 @@ class LiveBroadcastController(
 
 data class StartLiveBroadcastRequest(val title: String?)
 
+data class RenameLiveBroadcastRequest(val title: String?)
+
 data class LiveBroadcastSummaryResponse(
     val id: Long,
     val title: String,
     val status: LiveBroadcastStatus,
     val startedAt: Instant?,
     val endedAt: Instant?,
+    val owner: MemberResponse?,
 ) {
     companion object {
         fun from(broadcast: LiveBroadcast) = LiveBroadcastSummaryResponse(
@@ -74,6 +89,7 @@ data class LiveBroadcastSummaryResponse(
             status = broadcast.status,
             startedAt = broadcast.startedAt,
             endedAt = broadcast.endedAt,
+            owner = broadcast.owner?.let(MemberResponse::from),
         )
     }
 }
@@ -87,6 +103,7 @@ data class LiveBroadcastDetailResponse(
     val startedAt: Instant?,
     val endedAt: Instant?,
     val whepUrl: String,
+    val owner: MemberResponse?,
 ) {
     companion object {
         fun from(broadcast: LiveBroadcast) = LiveBroadcastDetailResponse(
@@ -97,6 +114,7 @@ data class LiveBroadcastDetailResponse(
             startedAt = broadcast.startedAt,
             endedAt = broadcast.endedAt,
             whepUrl = MediaPaths.whepUrl(broadcast.id!!),
+            owner = broadcast.owner?.let(MemberResponse::from),
         )
     }
 }
@@ -108,4 +126,5 @@ data class StartedLiveBroadcastResponse(
     val streamKey: String,
     val whipUrl: String,
     val createdAt: Instant,
+    val owner: MemberResponse,
 )

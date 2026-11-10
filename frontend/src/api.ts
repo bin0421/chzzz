@@ -27,6 +27,8 @@ export type LiveBroadcastSummary = {
   status: LiveBroadcastStatus
   startedAt: string | null
   endedAt: string | null
+  /** 소유자. 회원 기능 이전에 시작된 라이브 방송은 null이다. */
+  owner?: Member | null
 }
 
 export type LiveBroadcastDetail = LiveBroadcastSummary & {
@@ -133,11 +135,16 @@ export const api = {
   getLiveBroadcast(id: string | number) {
     return request<LiveBroadcastDetail>(`/api/live-broadcasts/${id}`)
   },
-  /** 송출자 종료. 송출 키를 아는 사람만 종료할 수 있다. */
-  endLiveBroadcast(id: number, streamKey: string) {
-    return request<LiveBroadcastDetail>(`/api/live-broadcasts/${id}/end`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${streamKey}` },
-    })
+  /** 소유자 제목 수정. 대기·방송 중·종료 어느 상태에서나 할 수 있다. */
+  renameLiveBroadcast(id: number, title: string) {
+    return request<LiveBroadcastDetail>(`/api/live-broadcasts/${id}`, json('PATCH', { title }))
+  },
+  /** 소유자 삭제. 종료된 방송만 지울 수 있다(대기·방송 중이면 409). */
+  deleteLiveBroadcast(id: number) {
+    return request<void>(`/api/live-broadcasts/${id}`, { method: 'DELETE' })
+  },
+  /** 소유자 종료. 로그인한 소유자 세션으로 검사한다(ADR-0006). */
+  endLiveBroadcast(id: number) {
+    return request<LiveBroadcastDetail>(`/api/live-broadcasts/${id}/end`, { method: 'POST' })
   },
 }
