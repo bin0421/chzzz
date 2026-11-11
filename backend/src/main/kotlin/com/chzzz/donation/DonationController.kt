@@ -40,7 +40,10 @@ class DonationController(
         return DonationFailureResponse(donation.status, BroadcastRef(donation.broadcastType, donation.broadcastId))
     }
 
-    /** 토스 결제 상태 변경 웹훅. 로그인·CSRF 없이 받고 항상 200이다(처리 결과는 통지 기록에, ADR-0008). */
+    /**
+     * 토스 결제 상태 변경 웹훅. 로그인·CSRF 없이 받는다. 처리 결과는 통지 기록에 남고 응답은 200이다(ADR-0008).
+     * 결제 서비스 조회가 통신 실패한 경우만 502로 답해 재전송을 받는다.
+     */
     @PostMapping("/api/payments/toss/webhook")
     fun tossWebhook(@RequestBody body: TossWebhookRequest) {
         donationService.handleWebhook(body.eventType.orEmpty(), body.data?.paymentKey.orEmpty(), body.data?.orderId.orEmpty())

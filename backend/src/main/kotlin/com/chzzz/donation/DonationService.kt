@@ -74,9 +74,8 @@ class DonationService(
             is GatewayResult.Payment -> when {
                 !result.isDone -> "결제가 완료되지 않았습니다(결제 상태 ${result.status})."
                     .also { donation.fail("PAYMENT_NOT_DONE", it) }
-                result.orderId != donation.orderId || result.totalAmount != donation.amount ->
-                    "결제 서비스의 승인 내용(주문 ${result.orderId}, ${result.totalAmount}원)이 후원과 맞지 않아 확인이 필요합니다."
-                        .also { donation.needsReview("PAYMENT_MISMATCH", it) }
+                mismatchOf(result, donation) != null ->
+                    mismatchOf(result, donation)!!.also { donation.needsReview("PAYMENT_MISMATCH", it) }
                 else -> {
                     donation.confirm(paymentKey, clock.instant())
                     return ConfirmOutcome(donation, NotificationResult.NEW_CONFIRMED)
@@ -102,40 +101,53 @@ class DonationService(
     /**
      * 토스 결제 상태 변경 웹훅. 본문은 믿지 않고 결제 키로 조회한 실제 결제로 확인 요청과 같은 규칙을 적용한다(ADR-0008).
      * 위조·관계없는 통지는 무시한다. 결과는 응답이 아니라 통지 기록에 남는다.
+     * 결제 서비스 조회가 통신 실패한 경우만 기록을 남긴 뒤 502로 끝내 결제 서비스가 웹훅을 다시 보내게 한다.
      */
-    @Transactional
-    fun handleWebhook(eventType: String, paymentKey: String, bodyOrderId: String) {
-        val (result, detail, orderId) = judgeWebhook(eventType, paymentKey, bodyOrderId)
-        record(paymentKey, orderId ?: bodyOrderId, NotificationSource.WEBHOOK, result, detail)
+    @Transactional(noRollbackFor = [BadGatewayException::class])
+    fun handleWebhook(eventType: String, paymentKey: String, orderId: String) {
+        val outcome = judgeWebhook(eventType, paymentKey, orderId)
+        record(paymentKey, orderId, NotificationSource.WEBHOOK, outcome.result, outcome.detail)
+        if (outcome.retry) throw BadGatewayException(FIND_UNAVAILABLE_MESSAGE)
     }
 
-    private fun judgeWebhook(eventType: String, paymentKey: String, bodyOrderId: String): Triple<NotificationResult, String?, String?> {
-        fun ignored(detail: String, orderId: String? = null) = Triple(NotificationResult.IGNORED, detail, orderId)
+    /** 웹훅 한 건의 처리 결과. [retry]면 결제 서비스가 다시 보내도록 502로 답한다. */
+    private class WebhookOutcome(val result: NotificationResult, val detail: String? = null, val retry: Boolean = false)
+
+    private fun judgeWebhook(eventType: String, paymentKey: String, orderId: String): WebhookOutcome {
+        fun ignored(detail: String) = WebhookOutcome(NotificationResult.IGNORED, detail)
         if (eventType != PAYMENT_STATUS_CHANGED || paymentKey.isBlank()) return ignored("결제 상태 변경 통지가 아닙니다(이벤트 $eventType).")
         val payment = when (val found = gateway.find(paymentKey)) {
             is GatewayResult.Payment -> found
             is GatewayResult.Rejected -> return ignored("결제 서비스에 없는 결제입니다(${found.code}).")
-            // 확인하지 못했으므로 적립하지 않는다. 결제 대기로 남아 다음 통지(확인 요청·웹훅 재전송)에서 다시 확인된다.
-            is GatewayResult.Unavailable -> return Triple(NotificationResult.REJECTED, "결제 서비스에서 결제를 조회하지 못했습니다.", null)
+            // 확인하지 못했으므로 적립하지 않는다. 결제 대기로 남아 재전송된 웹훅이나 확인 요청에서 다시 확인된다.
+            is GatewayResult.Unavailable -> return WebhookOutcome(NotificationResult.REJECTED, FIND_UNAVAILABLE_MESSAGE, retry = true)
         }
-        if (payment.orderId != bodyOrderId) return ignored("통지의 주문번호가 결제 서비스의 주문번호(${payment.orderId})와 다릅니다.", payment.orderId)
-        val donation = donationRepository.findForUpdateByOrderId(payment.orderId)
-            ?: return ignored("결제의 주문번호에 해당하는 후원이 없습니다.", payment.orderId)
-        fun outcome(result: NotificationResult, detail: String? = null) = Triple(result, detail, donation.orderId)
-        if (!payment.isDone) return outcome(NotificationResult.IGNORED, "결제가 완료되지 않았습니다(결제 상태 ${payment.status}).")
-        if (payment.totalAmount != donation.amount) return outcome(NotificationResult.IGNORED, "결제 금액(${payment.totalAmount}원)이 후원 금액과 다릅니다.")
+        // 확인 요청과 같이 통지가 가리키는 주문을 잠그고, 결제 서비스의 결제가 그 주문과 맞는지 본다.
+        val donation = donationRepository.findForUpdateByOrderId(orderId) ?: return ignored("통지의 주문번호에 해당하는 후원이 없습니다.")
+        if (!payment.isDone) return ignored("결제가 완료되지 않았습니다(결제 상태 ${payment.status}).")
+        val mismatch = mismatchOf(payment, donation)
         return when {
-            donation.status == DonationStatus.CONFIRMED && donation.paymentKey == paymentKey -> outcome(NotificationResult.ALREADY_CONFIRMED)
-            donation.status == DonationStatus.CONFIRMED -> outcome(NotificationResult.IGNORED, "이미 다른 결제로 확정된 후원입니다.")
-            donation.status in CLOSED -> outcome(NotificationResult.REJECTED, "이미 실패했거나 취소된 후원입니다.")
-            donationRepository.existsByPaymentKey(paymentKey) -> outcome(NotificationResult.IGNORED, "이미 다른 후원에 쓰인 결제입니다.")
-            failIfStreamerChanged(donation) -> outcome(NotificationResult.REJECTED, STREAMER_CHANGED_MESSAGE)
+            donation.status == DonationStatus.CONFIRMED && donation.paymentKey == paymentKey && mismatch == null ->
+                WebhookOutcome(NotificationResult.ALREADY_CONFIRMED)
+            donation.status == DonationStatus.CONFIRMED -> ignored(mismatch ?: "이미 다른 결제로 확정된 후원입니다.")
+            donation.status in CLOSED -> WebhookOutcome(NotificationResult.REJECTED, "이미 실패했거나 취소된 후원입니다.")
+            donationRepository.existsByPaymentKey(paymentKey) -> ignored("이미 다른 후원에 쓰인 결제입니다.")
+            failIfStreamerChanged(donation) -> WebhookOutcome(NotificationResult.REJECTED, STREAMER_CHANGED_MESSAGE)
+            mismatch != null -> {
+                donation.needsReview("PAYMENT_MISMATCH", mismatch)
+                WebhookOutcome(NotificationResult.REJECTED, mismatch)
+            }
             else -> {
                 donation.confirm(paymentKey, clock.instant())
-                outcome(NotificationResult.NEW_CONFIRMED)
+                WebhookOutcome(NotificationResult.NEW_CONFIRMED)
             }
         }
     }
+
+    /** 결제 서비스의 완료된 결제가 후원과 주문번호·금액이 다르면 그 이유. 같으면 null. */
+    private fun mismatchOf(payment: GatewayResult.Payment, donation: Donation): String? =
+        if (payment.orderId == donation.orderId && payment.totalAmount == donation.amount) null
+        else "결제 서비스의 승인 내용(주문 ${payment.orderId}, ${payment.totalAmount}원)이 후원과 맞지 않아 확인이 필요합니다."
 
     /** 결제창에서 실패·취소하고 돌아온 화면의 실패 보고. 결제 대기인 자기 후원을 취소 또는 실패로 바꾼다. */
     @Transactional
@@ -178,6 +190,8 @@ private const val ALREADY_PROCESSED_CODE = "ALREADY_PROCESSED_PAYMENT"
 
 /** 토스페이먼츠 웹훅 중 결제 상태가 바뀌었다는 이벤트 이름. */
 private const val PAYMENT_STATUS_CHANGED = "PAYMENT_STATUS_CHANGED"
+
+private const val FIND_UNAVAILABLE_MESSAGE = "결제 서비스에서 결제를 조회하지 못했습니다. 다시 보내 주세요."
 
 private const val STREAMER_CHANGED_MESSAGE = "방송이 사라졌거나 방송자가 바뀌어 후원할 수 없습니다."
 

@@ -112,27 +112,42 @@ class DonationWebhookApiTest {
     }
 
     @Test
-    fun `본문의 주문번호가 조회 결과와 다르면 적립하지 않고 무시로 기록한다`() {
+    fun `조회 결과의 주문번호가 통지의 주문과 다르면 확인 요청과 같이 적립하지 않고 확인 필요로 남긴다`() {
         val orderId = mockMvc.startDonationAs(donor, path, 5000)
         val other = mockMvc.startDonationAs(donor, path, 5000)
         paymentIs(other, 5000, "DONE")
 
         mockMvc.sendTossWebhook("pay_1", orderId).andExpect { status { isOk() } }
 
-        assertNotCredited(orderId)
-        assertNotCredited(other)
-        assertThat(records()).containsExactly("pay_1:WEBHOOK:IGNORED")
+        assertThat(statusOf(orderId)).isEqualTo("NEEDS_REVIEW")
+        assertThat(statusOf(other)).isEqualTo("AWAITING_PAYMENT")
+        assertTotal(0, 0)
+        assertThat(records()).containsExactly("pay_1:WEBHOOK:REJECTED")
     }
 
     @Test
-    fun `조회 결과의 금액이 후원 금액과 다르면 적립하지 않고 무시로 기록한다`() {
+    fun `조회 결과의 금액이 후원 금액과 다르면 확인 요청과 같이 적립하지 않고 확인 필요로 남긴다`() {
         val orderId = mockMvc.startDonationAs(donor, path, 5000)
         paymentIs(orderId, 1000, "DONE")
 
         mockMvc.sendTossWebhook("pay_1", orderId).andExpect { status { isOk() } }
 
-        assertNotCredited(orderId)
-        assertThat(records()).containsExactly("pay_1:WEBHOOK:IGNORED")
+        assertThat(statusOf(orderId)).isEqualTo("NEEDS_REVIEW")
+        assertTotal(0, 0)
+        assertThat(records()).containsExactly("pay_1:WEBHOOK:REJECTED")
+    }
+
+    @Test
+    fun `확정된 주문에 값이 다른 웹훅이 와도 확정 그대로이고 무시로 기록한다`() {
+        val orderId = mockMvc.startDonationAs(donor, path, 5000)
+        mockMvc.confirmDonation(donor, "pay_1", orderId, 5000).andExpect { status { isOk() } }
+        paymentIs(orderId, 1000, "DONE")
+
+        mockMvc.sendTossWebhook("pay_1", orderId).andExpect { status { isOk() } }
+
+        assertThat(statusOf(orderId)).isEqualTo("CONFIRMED")
+        assertTotal(5000, 1)
+        assertThat(records()).containsExactly("pay_1:CONFIRM_REQUEST:NEW_CONFIRMED", "pay_1:WEBHOOK:IGNORED")
     }
 
     @Test
@@ -175,11 +190,11 @@ class DonationWebhookApiTest {
     }
 
     @Test
-    fun `결제 서비스에 조회하지 못하면 적립하지 않고 결제 대기로 남겨 다음 통지에서 확정한다`() {
+    fun `결제 서비스에 조회하지 못하면 502로 재전송을 받고 결제 대기로 남겨 다음 통지에서 확정한다`() {
         val orderId = mockMvc.startDonationAs(donor, path, 5000)
         gateway.onFind = { GatewayResult.Unavailable("connect timed out") }
 
-        mockMvc.sendTossWebhook("pay_1", orderId).andExpect { status { isOk() } }
+        mockMvc.sendTossWebhook("pay_1", orderId).andExpect { status { isBadGateway() } }
         assertNotCredited(orderId)
 
         paymentIs(orderId, 5000, "DONE")
