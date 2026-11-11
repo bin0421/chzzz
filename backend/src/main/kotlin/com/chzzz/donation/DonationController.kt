@@ -34,6 +34,12 @@ class DonationController(
     fun confirm(@RequestBody body: ConfirmDonationRequest, member: LoginMember): DonationResultResponse =
         DonationResultResponse.from(donationService.confirm(body.paymentKey.orEmpty(), body.orderId.orEmpty(), body.amount ?: 0, member))
 
+    @PostMapping("/api/donations/fail")
+    fun reportFailure(@RequestBody body: ReportDonationFailureRequest, member: LoginMember): DonationFailureResponse {
+        val donation = donationService.reportFailure(body.orderId.orEmpty(), body.code.orEmpty(), body.message.orEmpty(), member)
+        return DonationFailureResponse(donation.status, BroadcastRef(donation.broadcastType, donation.broadcastId))
+    }
+
     @GetMapping("/api/recordings/{id}/donations")
     fun listForRecording(@PathVariable id: Long) = list(BroadcastType.RECORDING, id)
 
@@ -68,6 +74,10 @@ data class StartDonationRequest(val amount: Long?)
 
 data class ConfirmDonationRequest(val paymentKey: String?, val orderId: String?, val amount: Long?)
 
+data class ReportDonationFailureRequest(val orderId: String?, val code: String?, val message: String?)
+
+data class DonationFailureResponse(val status: DonationStatus, val broadcast: BroadcastRef)
+
 data class StartedDonationResponse(
     val orderId: String,
     val amount: Long,
@@ -85,6 +95,8 @@ data class DonationResultResponse(
     val streamer: MemberResponse,
     val broadcast: BroadcastRef,
     val confirmedAt: Instant?,
+    /** 확정되지 않은 이유(실패·확인 필요). 확정이면 없다. */
+    val failure: FailureResponse?,
 ) {
     companion object {
         fun from(donation: Donation) = DonationResultResponse(
@@ -94,9 +106,12 @@ data class DonationResultResponse(
             streamer = MemberResponse.from(donation.streamer),
             broadcast = BroadcastRef(donation.broadcastType, donation.broadcastId),
             confirmedAt = donation.confirmedAt,
+            failure = donation.failureCode?.let { FailureResponse(it, donation.failureMessage.orEmpty()) },
         )
     }
 }
+
+data class FailureResponse(val code: String, val message: String)
 
 data class DonationItemResponse(val id: Long, val donor: MemberResponse, val amount: Long, val confirmedAt: Instant)
 

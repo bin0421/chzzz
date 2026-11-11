@@ -20,6 +20,8 @@ export type DonationResult = {
   streamer: Member
   broadcast: { type: 'RECORDING' | 'LIVE_BROADCAST'; id: number }
   confirmedAt: string | null
+  /** 확정되지 않은 이유(실패·확인 필요). 확정이면 없다. */
+  failure?: { code: string; message: string } | null
 }
 
 export type DonationList = {
@@ -46,6 +48,15 @@ export const donationApi = {
   confirm(paymentKey: string, orderId: string, amount: number) {
     return request<DonationResult>('/api/donations/confirm', json('POST', { paymentKey, orderId, amount }))
   },
+  /** 결제창에서 실패·취소하고 돌아왔다고 서버에 알린다. 서버가 결제 대기 후원을 취소·실패로 바꾼다. */
+  reportFailure(orderId: string, code: string, message: string) {
+    return request<DonationFailureResult>('/api/donations/fail', json('POST', { orderId, code, message }))
+  },
+}
+
+export type DonationFailureResult = {
+  status: DonationStatus
+  broadcast: DonationResult['broadcast']
 }
 
 /** 확정 결과에서 후원한 방송 화면의 주소. */
