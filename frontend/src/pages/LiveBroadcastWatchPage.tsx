@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate, useParams } from 'react-router'
 import { api, ApiError, type LiveBroadcastDetail } from '../api'
 import { useAuth } from '../auth/auth'
 import CommentSection from '../comments/CommentSection'
+import DonationSection from '../donations/DonationSection'
 import { formatDateTime } from '../format'
 import { useMediaAdapter } from '../media/MediaAdapter'
 import { validateTitle } from '../titleRule'
@@ -200,6 +201,7 @@ export default function LiveBroadcastWatchPage() {
           )}
         </>
       )}
+      <DonationSection kind="live" id={broadcast.id} streamer={broadcast.owner} pollMs={DETAIL_POLL_MS} />
       <CommentSection kind="live" id={broadcast.id} pollMs={DETAIL_POLL_MS} />
     </article>
   )

@@ -398,6 +398,25 @@ video {
   cursor: pointer;
 }
 
+.donation-quick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  flex-basis: 100%;
+  margin: 0;
+}
+
+.donation-form .donation-quick button {
+  border: 1px solid var(--accent);
+  background: transparent;
+  color: var(--accent);
+}
+
+.donation-form .field-error {
+  flex-basis: 100%;
+  margin: 0;
+}
+
 .donation-checkout {
   margin-top: 1rem;
   padding: 1rem;

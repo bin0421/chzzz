@@ -41,7 +41,7 @@ class DonationController(
     fun listForLiveBroadcast(@PathVariable id: Long) = list(BroadcastType.LIVE_BROADCAST, id)
 
     private fun start(type: BroadcastType, id: Long, body: StartDonationRequest, member: LoginMember): StartedDonationResponse {
-        val started = donationService.start(type, id, body.amount ?: 0, member)
+        val started = donationService.start(type, id, DonationAmount.parse(body.amount), member)
         return StartedDonationResponse(
             orderId = started.donation.orderId,
             amount = started.donation.amount,
@@ -64,7 +64,7 @@ class DonationController(
 
 data class PaymentConfigResponse(val clientKey: String)
 
-data class StartDonationRequest(val amount: Long?)
+data class StartDonationRequest(val amount: Any?)
 
 data class ConfirmDonationRequest(val paymentKey: String?, val orderId: String?, val amount: Long?)
 
