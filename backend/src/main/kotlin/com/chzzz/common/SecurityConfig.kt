@@ -42,7 +42,8 @@ class SecurityConfig : WebMvcConfigurer {
             .csrf {
                 it.spa()
                     .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
-                    .ignoringRequestMatchers("/internal/**")
+                    // 토스 웹훅은 결제 서비스가 보내므로 CSRF 토큰이 없다. 본문 대신 조회 API를 믿어 위조를 막는다(ADR-0008).
+                    .ignoringRequestMatchers("/internal/**", "/api/payments/toss/webhook")
             }
             .addFilterAfter(CsrfCookieFilter(), CsrfFilter::class.java)
             .formLogin { it.disable() }

@@ -40,6 +40,15 @@ class DonationController(
         return DonationFailureResponse(donation.status, BroadcastRef(donation.broadcastType, donation.broadcastId))
     }
 
+    /**
+     * 토스 결제 상태 변경 웹훅. 로그인·CSRF 없이 받는다. 처리 결과는 통지 기록에 남고 응답은 200이다(ADR-0008).
+     * 결제 서비스 조회가 통신 실패한 경우만 502로 답해 재전송을 받는다.
+     */
+    @PostMapping("/api/payments/toss/webhook")
+    fun tossWebhook(@RequestBody body: TossWebhookRequest) {
+        donationService.handleWebhook(body.eventType.orEmpty(), body.data?.paymentKey.orEmpty(), body.data?.orderId.orEmpty())
+    }
+
     @GetMapping("/api/recordings/{id}/donations")
     fun listForRecording(@PathVariable id: Long) = list(BroadcastType.RECORDING, id)
 
@@ -75,6 +84,11 @@ data class StartDonationRequest(val amount: Any?)
 data class ConfirmDonationRequest(val paymentKey: String?, val orderId: String?, val amount: Long?)
 
 data class ReportDonationFailureRequest(val orderId: String?, val code: String?, val message: String?)
+
+/** 토스 웹훅 본문. 결제 키(와 대조용 주문번호)만 읽고 나머지 값은 믿지 않는다. */
+data class TossWebhookRequest(val eventType: String?, val data: TossWebhookData?)
+
+data class TossWebhookData(val paymentKey: String?, val orderId: String?)
 
 data class DonationFailureResponse(val status: DonationStatus, val broadcast: BroadcastRef)
 

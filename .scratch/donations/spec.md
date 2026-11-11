@@ -132,7 +132,7 @@ Status: ready-for-agent
 | `POST` | `/api/donations/confirm` | 로그인 | JSON `{ paymentKey, orderId, amount }`. `200 { id, status, amount, streamer, broadcast: { type, id }, confirmedAt }`. 위 확정 규칙의 400/403/404/409/502 |
 | `POST` | `/api/donations/fail` | 로그인 | JSON `{ orderId, code, message }`. 결제 대기인 자기 주문을 사용자 취소 코드면 취소, 그 밖은 실패로 바꾼다. `200 { status, broadcast }`. 이미 확정이면 바꾸지 않고 409 |
 | `GET` | `/api/recordings/{id}/donations`, `/api/live-broadcasts/{id}/donations` | 공개 | `{ totalAmount, count, items: [{ id, donor: { id, nickname }, amount, confirmedAt }] }`, 확정만, 최신순. 방송 없음 404 |
-| `POST` | `/api/payments/toss/webhook` | 공개(CSRF 제외) | 토스 결제 상태 변경 본문(`eventType`, `data.paymentKey`, `data.orderId`, `data.status`). 본문은 결제 키를 얻는 데만 쓰고 조회로 확인한다. 항상 200(처리 결과는 통지 기록에) |
+| `POST` | `/api/payments/toss/webhook` | 공개(CSRF 제외) | 토스 결제 상태 변경 본문(`eventType`, `data.paymentKey`, `data.orderId`, `data.status`). 본문은 결제 키·주문번호를 얻는 데만 쓰고 조회로 확인한다. 200(처리 결과는 통지 기록에). 단, 결제 서비스 조회가 통신 실패하면 502로 답해 재전송을 받는다(04 진행 중 사용자 결정, 2026-11-11) |
 
 - `customerKey`: 후원자를 결제 서비스에 식별시키는 값(회원 식별자에서 만든 무작위가 아닌 고정 문자열, 결제 SDK 규칙에 맞게).
 - 성공·실패 주소: 프론트가 `window.location.origin` 기준으로 `/donations/success`, `/donations/fail`을 넘긴다. PC(`http://localhost:3000`)와 휴대폰(`https://<PUBLIC_HOST>:8443`) 모두 같은 방식으로 동작한다.
@@ -158,7 +158,7 @@ Status: ready-for-agent
   - 결제 게이트웨이를 테스트 설정에서 가짜로 바꾼다(prior art: `MutableClockConfiguration`). 가짜는 승인 성공·거절·이미 처리됨·통신 실패, 조회 결과를 테스트마다 정할 수 있고 호출 횟수를 기록한다.
   - 후원 시작: 비로그인 401, 금액 경계(999·1,000·1,000,000·1,000,001), 방송 없음 404, 소유자 없음·자기 방송 409, 녹화방송·라이브 방송(종료 포함) 모두.
   - 확인: 성공 확정과 내역·합계 반영, 금액 위조 400(승인 API 호출 0회), 다른 회원 403, 실패·취소된 주문 409, 결제 서비스 거절 → 실패, 승인 후 값 불일치 → 확인 필요, 통신 실패 502 후 재시도로 확정, "이미 처리됨" → 조회로 확정.
-  - 중복: 같은 확인 요청 두 번 → 합계 한 번, 승인 API 호출 1회, 통지 기록 2줄(새로 확정·이미 확정). 동시 두 요청(스레드 두 개) → 한 건만 확정. 웹훅 두 번 → 한 번 적립. 위조 웹훅(조회 결과가 완료 아님·주문 다름) → 무시. 확인 요청 후 웹훅 → 이미 확정.
+  - 중복: 같은 확인 요청 두 번 → 합계 한 번, 승인 API 호출 1회, 통지 기록 2줄(새로 확정·이미 확정). 동시 두 요청(스레드 두 개) → 한 건만 확정. 웹훅 두 번 → 한 번 적립. 위조 웹훅(조회 결과가 완료 아님·없는 결제 키) → 무시. 결제 대기 주문에 완료인데 주문번호·금액이 다른 웹훅 → 확인 요청과 같이 확인 필요. 조회 통신 실패 → 502. 확인 요청 후 웹훅 → 이미 확정.
   - 실패 보고: 취소 코드 → 취소, 그 밖 → 실패, 확정된 주문은 바뀌지 않음(409), 다른 회원 403.
   - 내역: 공개, 확정만, 최신순, 합계·건수.
   - 실제 토스 구현(게이트웨이)은 자동 테스트하지 않는다. 요청 모양(인증 헤더·본문)만 필요하면 로컬 가짜 HTTP 서버로 확인한다.

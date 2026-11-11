@@ -47,49 +47,107 @@ class DonationService(
             if (e.isRejection()) record(paymentKey, orderId, NotificationSource.CONFIRM_REQUEST, NotificationResult.REJECTED, e.message)
             throw e
         }
-        if (outcome.newlyConfirmed) {
-            record(paymentKey, orderId, NotificationSource.CONFIRM_REQUEST, NotificationResult.NEW_CONFIRMED, null)
-        } else {
-            record(paymentKey, orderId, NotificationSource.CONFIRM_REQUEST, NotificationResult.REJECTED, outcome.reason)
-        }
+        record(paymentKey, orderId, NotificationSource.CONFIRM_REQUEST, outcome.result, outcome.reason)
         return outcome.donation
     }
 
     private fun approve(paymentKey: String, orderId: String, amount: Long, member: LoginMember): ConfirmOutcome {
-        val donation = donationRepository.findByOrderId(orderId) ?: throw NotFoundException("후원을 찾을 수 없습니다.")
+        val donation = donationRepository.findForUpdateByOrderId(orderId) ?: throw NotFoundException("후원을 찾을 수 없습니다.")
         Ownership.requireOwner(donation.donor.id, member, "자기 후원만 확인할 수 있습니다.")
+        if (donation.status == DonationStatus.CONFIRMED) {
+            // 이미 확정: 결제 서비스를 다시 부르지 않고 기존 결과를 돌려준다(새로고침·재전송).
+            if (donation.paymentKey == paymentKey) return ConfirmOutcome(donation, NotificationResult.ALREADY_CONFIRMED)
+            throw ConflictException("이미 다른 결제로 확정된 후원입니다.")
+        }
         if (donation.status in CLOSED) throw ConflictException("이미 실패했거나 취소된 후원입니다.")
+        // 결제 하나는 후원 하나에만 붙는다. 저장 구조의 유니크 제약이 마지막으로 막지만, 그 전에 이유와 함께 거절한다.
+        if (donationRepository.existsByPaymentKey(paymentKey)) throw ConflictException("이미 다른 후원에 쓰인 결제입니다.")
         if (amount != donation.amount) {
             donation.fail("AMOUNT_MISMATCH", "결제 금액이 후원 금액과 다릅니다.")
             throw FieldValidationException("amount", "결제 금액이 후원 금액과 다릅니다.")
         }
-        val owner = broadcasts.find(donation.broadcastType, donation.broadcastId)?.owner
-        if (owner?.id != donation.streamer.id) {
-            donation.fail("STREAMER_CHANGED", "방송이 사라졌거나 방송자가 바뀌어 후원할 수 없습니다.")
-            throw ConflictException("방송이 사라졌거나 방송자가 바뀌어 후원할 수 없습니다.")
-        }
-        // 이미 확정된 후원을 다시 확인해도 상태는 바뀌지 않는다(Donation이 지킨다). 결제 서비스를 다시 부르지 않는 처리는 04에서 한다.
-        val reason = when (val result = gateway.confirm(paymentKey, orderId, amount)) {
+        if (failIfStreamerChanged(donation)) throw ConflictException(STREAMER_CHANGED_MESSAGE)
+        val approved = gateway.confirm(paymentKey, orderId, amount)
+        // 승인은 이미 끝났는데 서버가 확정하기 전에 끊긴 경우. 조회로 실제 상태를 확인해 같은 규칙으로 처리한다.
+        val payment = if (approved is GatewayResult.Rejected && approved.code == ALREADY_PROCESSED_CODE) gateway.find(paymentKey) else approved
+        val reason = when (val result = payment) {
             is GatewayResult.Payment -> when {
                 !result.isDone -> "결제가 완료되지 않았습니다(결제 상태 ${result.status})."
                     .also { donation.fail("PAYMENT_NOT_DONE", it) }
-                result.orderId != donation.orderId || result.totalAmount != donation.amount ->
-                    "결제 서비스의 승인 내용(주문 ${result.orderId}, ${result.totalAmount}원)이 후원과 맞지 않아 확인이 필요합니다."
-                        .also { donation.needsReview("PAYMENT_MISMATCH", it) }
-                donation.status == DonationStatus.AWAITING_PAYMENT -> {
+                mismatchOf(result, donation) != null ->
+                    mismatchOf(result, donation)!!.also { donation.needsReview("PAYMENT_MISMATCH", it) }
+                else -> {
                     donation.confirm(paymentKey, clock.instant())
-                    return ConfirmOutcome(donation, newlyConfirmed = true)
+                    return ConfirmOutcome(donation, NotificationResult.NEW_CONFIRMED)
                 }
-                else -> "이미 확정된 후원입니다."
             }
             is GatewayResult.Rejected -> result.message.also { donation.fail(result.code, it) }
             // 결과를 모르므로 결제 대기로 두고, 같은 요청을 다시 보내면 다시 확인한다.
             is GatewayResult.Unavailable -> throw BadGatewayException("결제 서비스와 연결하지 못했습니다. 잠시 후 다시 확인해 주세요.")
         }
-        return ConfirmOutcome(donation, newlyConfirmed = false, reason = reason)
+        return ConfirmOutcome(donation, NotificationResult.REJECTED, reason)
     }
 
-    private class ConfirmOutcome(val donation: Donation, val newlyConfirmed: Boolean, val reason: String? = null)
+    private class ConfirmOutcome(val donation: Donation, val result: NotificationResult, val reason: String? = null)
+
+    /** 방송이 사라졌거나 소유자가 저장된 방송자와 다르면 후원을 실패로 바꾸고 true. */
+    private fun failIfStreamerChanged(donation: Donation): Boolean {
+        val owner = broadcasts.find(donation.broadcastType, donation.broadcastId)?.owner
+        if (owner?.id == donation.streamer.id) return false
+        donation.fail("STREAMER_CHANGED", STREAMER_CHANGED_MESSAGE)
+        return true
+    }
+
+    /**
+     * 토스 결제 상태 변경 웹훅. 본문은 믿지 않고 결제 키로 조회한 실제 결제로 확인 요청과 같은 규칙을 적용한다(ADR-0008).
+     * 위조·관계없는 통지는 무시한다. 결과는 응답이 아니라 통지 기록에 남는다.
+     * 결제 서비스 조회가 통신 실패한 경우만 기록을 남긴 뒤 502로 끝내 결제 서비스가 웹훅을 다시 보내게 한다.
+     */
+    @Transactional(noRollbackFor = [BadGatewayException::class])
+    fun handleWebhook(eventType: String, paymentKey: String, orderId: String) {
+        val outcome = judgeWebhook(eventType, paymentKey, orderId)
+        record(paymentKey, orderId, NotificationSource.WEBHOOK, outcome.result, outcome.detail)
+        if (outcome.retry) throw BadGatewayException(FIND_UNAVAILABLE_MESSAGE)
+    }
+
+    /** 웹훅 한 건의 처리 결과. [retry]면 결제 서비스가 다시 보내도록 502로 답한다. */
+    private class WebhookOutcome(val result: NotificationResult, val detail: String? = null, val retry: Boolean = false)
+
+    private fun judgeWebhook(eventType: String, paymentKey: String, orderId: String): WebhookOutcome {
+        fun ignored(detail: String) = WebhookOutcome(NotificationResult.IGNORED, detail)
+        if (eventType != PAYMENT_STATUS_CHANGED || paymentKey.isBlank()) return ignored("결제 상태 변경 통지가 아닙니다(이벤트 $eventType).")
+        val payment = when (val found = gateway.find(paymentKey)) {
+            is GatewayResult.Payment -> found
+            is GatewayResult.Rejected -> return ignored("결제 서비스에 없는 결제입니다(${found.code}).")
+            // 확인하지 못했으므로 적립하지 않는다. 결제 대기로 남아 재전송된 웹훅이나 확인 요청에서 다시 확인된다.
+            is GatewayResult.Unavailable -> return WebhookOutcome(NotificationResult.REJECTED, FIND_UNAVAILABLE_MESSAGE, retry = true)
+        }
+        // 확인 요청과 같이 통지가 가리키는 주문을 잠그고, 결제 서비스의 결제가 그 주문과 맞는지 본다.
+        val donation = donationRepository.findForUpdateByOrderId(orderId) ?: return ignored("통지의 주문번호에 해당하는 후원이 없습니다.")
+        if (!payment.isDone) return ignored("결제가 완료되지 않았습니다(결제 상태 ${payment.status}).")
+        val mismatch = mismatchOf(payment, donation)
+        return when {
+            donation.status == DonationStatus.CONFIRMED && donation.paymentKey == paymentKey && mismatch == null ->
+                WebhookOutcome(NotificationResult.ALREADY_CONFIRMED)
+            donation.status == DonationStatus.CONFIRMED -> ignored(mismatch ?: "이미 다른 결제로 확정된 후원입니다.")
+            donation.status in CLOSED -> WebhookOutcome(NotificationResult.REJECTED, "이미 실패했거나 취소된 후원입니다.")
+            donationRepository.existsByPaymentKey(paymentKey) -> ignored("이미 다른 후원에 쓰인 결제입니다.")
+            failIfStreamerChanged(donation) -> WebhookOutcome(NotificationResult.REJECTED, STREAMER_CHANGED_MESSAGE)
+            mismatch != null -> {
+                donation.needsReview("PAYMENT_MISMATCH", mismatch)
+                WebhookOutcome(NotificationResult.REJECTED, mismatch)
+            }
+            else -> {
+                donation.confirm(paymentKey, clock.instant())
+                WebhookOutcome(NotificationResult.NEW_CONFIRMED)
+            }
+        }
+    }
+
+    /** 결제 서비스의 완료된 결제가 후원과 주문번호·금액이 다르면 그 이유. 같으면 null. */
+    private fun mismatchOf(payment: GatewayResult.Payment, donation: Donation): String? =
+        if (payment.orderId == donation.orderId && payment.totalAmount == donation.amount) null
+        else "결제 서비스의 승인 내용(주문 ${payment.orderId}, ${payment.totalAmount}원)이 후원과 맞지 않아 확인이 필요합니다."
 
     /** 결제창에서 실패·취소하고 돌아온 화면의 실패 보고. 결제 대기인 자기 후원을 취소 또는 실패로 바꾼다. */
     @Transactional
@@ -126,6 +184,16 @@ class DonationService(
 
 /** 결제창에서 사용자가 결제를 그만두었을 때 토스페이먼츠가 실패 주소로 넘기는 오류 코드. */
 private const val USER_CANCELED_CODE = "PAY_PROCESS_CANCELED"
+
+/** 이미 승인된 결제에 다시 승인을 요청했을 때 토스페이먼츠가 주는 오류 코드. */
+private const val ALREADY_PROCESSED_CODE = "ALREADY_PROCESSED_PAYMENT"
+
+/** 토스페이먼츠 웹훅 중 결제 상태가 바뀌었다는 이벤트 이름. */
+private const val PAYMENT_STATUS_CHANGED = "PAYMENT_STATUS_CHANGED"
+
+private const val FIND_UNAVAILABLE_MESSAGE = "결제 서비스에서 결제를 조회하지 못했습니다. 다시 보내 주세요."
+
+private const val STREAMER_CHANGED_MESSAGE = "방송이 사라졌거나 방송자가 바뀌어 후원할 수 없습니다."
 
 /** 확정할 수 없게 끝난 후원 상태. 이 상태의 주문은 다시 확인해도 거절한다. */
 private val CLOSED = setOf(DonationStatus.FAILED, DonationStatus.CANCELED, DonationStatus.NEEDS_REVIEW)
