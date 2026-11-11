@@ -1,6 +1,7 @@
 package com.chzzz.donation
 
 import com.chzzz.common.BroadcastType
+import com.chzzz.common.ConflictException
 import com.chzzz.common.NotFoundException
 import com.chzzz.common.UnauthenticatedException
 import com.chzzz.member.LoginMember
@@ -24,7 +25,8 @@ class DonationService(
     fun start(type: BroadcastType, broadcastId: Long, amount: Long, member: LoginMember): StartedDonation {
         val broadcast = broadcasts.find(type, broadcastId) ?: throw NotFoundException("방송을 찾을 수 없습니다.")
         val donor = memberRepository.findByIdOrNull(member.id) ?: throw UnauthenticatedException()
-        val streamer = broadcast.owner!!
+        val streamer = broadcast.owner
+        if (streamer == null || streamer.id == donor.id) throw ConflictException("후원할 수 없는 방송입니다.")
         val donation = donationRepository.save(Donation.start(type, broadcastId, donor, streamer, amount, clock.instant()))
         return StartedDonation(donation, orderName = "${broadcast.title} 후원")
     }
@@ -42,10 +44,12 @@ class DonationService(
     }
 
     @Transactional(readOnly = true)
-    fun confirmedOf(type: BroadcastType, broadcastId: Long): List<Donation> =
-        donationRepository.findAllByBroadcastTypeAndBroadcastIdAndStatusOrderByConfirmedAtDescIdDesc(
+    fun confirmedOf(type: BroadcastType, broadcastId: Long): List<Donation> {
+        broadcasts.find(type, broadcastId) ?: throw NotFoundException("방송을 찾을 수 없습니다.")
+        return donationRepository.findAllByBroadcastTypeAndBroadcastIdAndStatusOrderByConfirmedAtDescIdDesc(
             type, broadcastId, DonationStatus.CONFIRMED,
         )
+    }
 
     private fun record(paymentKey: String?, orderId: String?, source: NotificationSource, result: NotificationResult, detail: String?) {
         notificationRepository.save(PaymentNotification(paymentKey, orderId, source, result, detail, clock.instant()))
