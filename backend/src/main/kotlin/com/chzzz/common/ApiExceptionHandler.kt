@@ -45,4 +45,10 @@ class ApiExceptionHandler {
         ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, e.message ?: "현재 상태에서는 할 수 없습니다.").apply {
             title = "상태 충돌"
         }
+
+    @ExceptionHandler(BadGatewayException::class)
+    fun handleBadGateway(e: BadGatewayException): ProblemDetail =
+        ProblemDetail.forStatusAndDetail(HttpStatus.BAD_GATEWAY, e.message ?: "바깥 서비스와 통신하지 못했습니다.").apply {
+            title = "바깥 서비스 통신 실패"
+        }
 }

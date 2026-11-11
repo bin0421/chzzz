@@ -76,6 +76,23 @@ class Donation private constructor(
         confirmedAt = now.truncatedTo(ChronoUnit.MICROS)
     }
 
+    /** 결제가 거절되었거나 서버 확인을 통과하지 못했다. 적립하지 않는다. */
+    fun fail(code: String, message: String) = close(DonationStatus.FAILED, code, message)
+
+    /** 후원자가 결제창에서 결제를 그만두었다. 적립하지 않는다. */
+    fun cancel(code: String, message: String) = close(DonationStatus.CANCELED, code, message)
+
+    /** 결제 서비스 승인은 끝났는데 값이 맞지 않는다. 적립하지 않고 사람이 확인할 수 있게 이유를 남긴다. */
+    fun needsReview(code: String, message: String) = close(DonationStatus.NEEDS_REVIEW, code, message)
+
+    /** 결제 대기 후원만 적립하지 않는 상태로 끝낸다. 확정된 후원은 바뀌지 않는다. */
+    private fun close(closed: DonationStatus, code: String, message: String) {
+        if (status != DonationStatus.AWAITING_PAYMENT) return
+        status = closed
+        failureCode = code
+        failureMessage = message.take(500)
+    }
+
     companion object {
         fun start(broadcastType: BroadcastType, broadcastId: Long, donor: Member, streamer: Member, amount: Long, now: Instant) =
             Donation(
