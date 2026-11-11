@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router'
 import { api, ApiError, type RecordingDetail } from '../api'
 import { useAuth } from '../auth/auth'
 import CommentSection from '../comments/CommentSection'
+import DonationSection from '../donations/DonationSection'
 import { formatDateTime } from '../format'
 import ActionErrorNotice from './ActionErrorNotice'
 import RecordingTitleEditor from './RecordingTitleEditor'
@@ -95,6 +96,7 @@ export default function RecordingDetailPage() {
         등록일시 <time dateTime={recording.createdAt}>{formatDateTime(recording.createdAt)}</time>
       </p>
       <Player key={recording.id} src={recording.videoUrl} />
+      <DonationSection kind="recording" id={recording.id} streamer={recording.owner} />
       <CommentSection kind="recording" id={recording.id} />
     </article>
   )

@@ -349,3 +349,74 @@ video {
 .comment-form button {
   align-self: flex-start;
 }
+
+/* 4단계: 방송별 후원 */
+.donations {
+  margin-top: 2rem;
+  max-width: 640px;
+}
+
+.donation-total {
+  font-weight: 600;
+  font-size: 1.1rem;
+}
+
+.donations li {
+  justify-content: flex-start;
+  gap: 1rem;
+}
+
+.donation-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.donation-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.donation-form input {
+  width: 10rem;
+  padding: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font: inherit;
+}
+
+.donation-form button {
+  padding: 0.55rem 1rem;
+  border: none;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #fff;
+  font: inherit;
+  cursor: pointer;
+}
+
+.donation-checkout {
+  margin-top: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.donation-checkout > button {
+  margin-top: 0.75rem;
+  padding: 0.6rem 1.2rem;
+  border: none;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #fff;
+  font: inherit;
+  cursor: pointer;
+}
+
+.donation-checkout > button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

@@ -10,6 +10,7 @@ import RecordingListPage from './pages/RecordingListPage'
 import RecordingDetailPage from './pages/RecordingDetailPage'
 import RecordingNewPage from './pages/RecordingNewPage'
 import SignUpPage from './pages/SignUpPage'
+import DonationSuccessPage from './donations/DonationSuccessPage'
 
 export default function App() {
   return (
@@ -56,6 +57,7 @@ export default function App() {
             }
           />
           <Route path="/recordings/:id" element={<RecordingDetailPage />} />
+          <Route path="/donations/success" element={<DonationSuccessPage />} />
         </Routes>
       </main>
     </AuthProvider>

@@ -5,13 +5,17 @@ import App from './App.tsx'
 import './index.css'
 import { MediaAdapterContext } from './media/MediaAdapter'
 import { webrtcMediaAdapter } from './media/webrtcMediaAdapter'
+import { PaymentAdapterContext } from './payment/PaymentAdapter'
+import { tossPaymentAdapter } from './payment/tossPaymentAdapter'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <MediaAdapterContext.Provider value={webrtcMediaAdapter}>
-      <BrowserRouter>
-        <App />
-      </BrowserRouter>
+      <PaymentAdapterContext.Provider value={tossPaymentAdapter}>
+        <BrowserRouter>
+          <App />
+        </BrowserRouter>
+      </PaymentAdapterContext.Provider>
     </MediaAdapterContext.Provider>
   </StrictMode>,
 )
