@@ -46,3 +46,16 @@ fun MockMvc.reportDonationFailure(session: MockHttpSession?, orderId: String, co
         contentType = MediaType.APPLICATION_JSON
         content = """{"orderId":"$orderId","code":"$code","message":"$message"}"""
     }
+
+/** 토스가 보내는 결제 상태 변경 웹훅. 로그인 세션·CSRF 토큰 없이 보낸다. */
+fun MockMvc.sendTossWebhook(
+    paymentKey: String,
+    orderId: String,
+    status: String = "DONE",
+    eventType: String = "PAYMENT_STATUS_CHANGED",
+): ResultActionsDsl =
+    post("/api/payments/toss/webhook") {
+        contentType = MediaType.APPLICATION_JSON
+        content = """{"eventType":"$eventType","createdAt":"2026-11-11T10:00:00.000000",""" +
+            """"data":{"paymentKey":"$paymentKey","orderId":"$orderId","status":"$status","totalAmount":5000}}"""
+    }

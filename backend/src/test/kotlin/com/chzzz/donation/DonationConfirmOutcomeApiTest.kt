@@ -128,7 +128,7 @@ class DonationConfirmOutcomeApiTest {
     }
 
     @Test
-    fun `확정된 후원은 다시 확인한 요청을 결제 서비스가 거절해도 확정 그대로다`() {
+    fun `확정된 후원을 다시 확인하면 결제 서비스를 부르지 않고 확정 그대로다`() {
         val orderId = mockMvc.startDonationAs(donor, "/api/recordings/$recordingId/donations", 5000)
         mockMvc.confirmDonation(donor, "pay_1", orderId, 5000).andExpect { status { isOk() } }
         gateway.onConfirm = { _, _, _ -> GatewayResult.Rejected("ALREADY_PROCESSED_PAYMENT", "이미 처리된 결제 입니다.") }
@@ -144,7 +144,8 @@ class DonationConfirmOutcomeApiTest {
             jsonPath("$.count") { value(1) }
         }
         assertThat(jdbcTemplate.queryForList("SELECT result FROM payment_notification ORDER BY id", String::class.java))
-            .containsExactly("NEW_CONFIRMED", "REJECTED")
+            .containsExactly("NEW_CONFIRMED", "ALREADY_CONFIRMED")
+        assertThat(gateway.confirmCalls).hasSize(1)
     }
 
     private fun statusOf(orderId: String): String =
