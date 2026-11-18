@@ -231,3 +231,6 @@ red → green(→ refactor) 사이클마다 한 줄씩 기록한다. 4단계까�
 | 188 | [01] 인스턴스 A·B의 응답(일반 응답과 보안 필터의 401)에 `X-Backend-Instance: instance-a`/`instance-b`가 실린다 | 헤더 값이 `null` | 가장 먼저 도는 `InstanceNameHeaderFilter`, `instance.name`(`INSTANCE_NAME`, 비우면 호스트 이름) | 두 인스턴스 테스트를 `MultiInstanceApiTest`로 이름 바꿈 |
 | 189 | [01] 두 인스턴스의 `LivePendingSweeper`를 8번 동시에 돌려도 예외 없이 시간 초과 대기 20개가 모두 `ENDED`, 종료 시각은 생성+60초 | red 아님(확인용: 같은 행을 같은 값으로 바꾸는 작업이라 그대로 둠) | - | - |
 | 190 | [01b] 같은 DB에 대기·방송 중 라이브가 있을 때 인스턴스 C가 새로 떠도 둘 다 그대로다 | 둘 다 `ENDED`(`LiveBroadcastStartupCleanup`이 시작할 때마다 모두 종료) | `LiveBroadcastStartupCleanup`·`endAllUnfinished` 삭제, 옛 재시작 정리 테스트 삭제 | - |
+| 191 | [01b] MediaMTX 제어 API 어댑터가 `GET /v3/paths/list`에서 `available`이 true인 경로 이름만 돌려준다(가짜 HTTP 서버) | 빈 목록(구현을 빈 결과로 둔 상태) | `MediaServer` 경계 + `MediaMtxApi`(`RestClient`), `mediamtx.api-url` | - |
+| 192 | [01b] 경로가 여러 페이지(`pageCount`)면 모든 페이지를 읽는다 | 첫 페이지 경로만 | `page`를 늘리며 `pageCount`까지 반복 | - |
+| 193 | [01b] MediaMTX가 오류(401)로 응답하거나 닿지 않으면 송출 여부를 모른다(`Unknown`)고 돌려준다 | `HttpClientErrorException`·`ResourceAccessException`이 그대로 던져짐 | `RestClientException`을 `Unknown`으로, 연결·읽기 제한 3초 | - |
