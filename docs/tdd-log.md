@@ -234,3 +234,6 @@ red → green(→ refactor) 사이클마다 한 줄씩 기록한다. 4단계까�
 | 191 | [01b] MediaMTX 제어 API 어댑터가 `GET /v3/paths/list`에서 `available`이 true인 경로 이름만 돌려준다(가짜 HTTP 서버) | 빈 목록(구현을 빈 결과로 둔 상태) | `MediaServer` 경계 + `MediaMtxApi`(`RestClient`), `mediamtx.api-url` | - |
 | 192 | [01b] 경로가 여러 페이지(`pageCount`)면 모든 페이지를 읽는다 | 첫 페이지 경로만 | `page`를 늘리며 `pageCount`까지 반복 | - |
 | 193 | [01b] MediaMTX가 오류(401)로 응답하거나 닿지 않으면 송출 여부를 모른다(`Unknown`)고 돌려준다 | `HttpClientErrorException`·`ResourceAccessException`이 그대로 던져짐 | `RestClientException`을 `Unknown`으로, 연결·읽기 제한 3초 | - |
+| 194 | [01b] 방송 중이 된 지 유예 시간(30초)이 지나도 MediaMTX에 송출이 없으면 대조 작업이 종료로 정리하고 종료 시각은 대조한 시각이다(가짜 `MediaServer`) | `LIVE` 그대로(빈 `LiveMediaReconciler`) | `LiveMediaReconciler`(`@Scheduled`, `live.reconcile-interval`) → `endLiveWithoutPublisher`(`live.publish-grace`, `LIVE_PUBLISH_GRACE`) | - |
+| 195 | [01b] 송출이 있는 방송 중은 그대로 / 방송 중이 된 직후 목록에 없어도 30초까지는 그대로, 31초에 종료 / MediaMTX에 닿지 않으면 종료하지 않음 / 대기는 대조로 종료하지 않음 | red 아님(194의 구현으로 동작, 티켓 항목 고정용) | - | - |
+| 196 | [01b] `mediamtx.api-url`이 비어 있으면(개발 실행 기본값) 송출이 없어도 방송 중을 종료하지 않는다 | `ENDED` | 주소가 비면 대조를 건너뛰고 시작 시 한 번 알림, 닿지 않을 때 경고 로그 | - |
