@@ -237,3 +237,4 @@ red → green(→ refactor) 사이클마다 한 줄씩 기록한다. 4단계까�
 | 194 | [01b] 방송 중이 된 지 유예 시간(30초)이 지나도 MediaMTX에 송출이 없으면 대조 작업이 종료로 정리하고 종료 시각은 대조한 시각이다(가짜 `MediaServer`) | `LIVE` 그대로(빈 `LiveMediaReconciler`) | `LiveMediaReconciler`(`@Scheduled`, `live.reconcile-interval`) → `endLiveWithoutPublisher`(`live.publish-grace`, `LIVE_PUBLISH_GRACE`) | - |
 | 195 | [01b] 송출이 있는 방송 중은 그대로 / 방송 중이 된 직후 목록에 없어도 30초까지는 그대로, 31초에 종료 / MediaMTX에 닿지 않으면 종료하지 않음 / 대기는 대조로 종료하지 않음 | red 아님(194의 구현으로 동작, 티켓 항목 고정용) | - | - |
 | 196 | [01b] `mediamtx.api-url`이 비어 있으면(개발 실행 기본값) 송출이 없어도 방송 중을 종료하지 않는다 | `ENDED` | 주소가 비면 대조를 건너뛰고 시작 시 한 번 알림, 닿지 않을 때 경고 로그 | - |
+| 197 | [01b] 인스턴스 A·B의 송출 대조를 8번 동시에 돌려도(실제 `MediaMtxApi` + 가짜 HTTP 서버) 예외 없이 송출 중인 10개는 `LIVE`, 나머지 10개는 `ENDED` | red 아님(확인용: 이미 종료된 방송은 다시 종료하지 않고, 겹치면 뒤 트랜잭션이 행 잠금을 기다렸다 같은 상태를 쓴다) | - | - |
