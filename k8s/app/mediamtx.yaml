@@ -1,0 +1,107 @@
+# 라이브 방송 미디어 서버 1대 (WebRTC WHIP/WHEP, ADR-0003)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mediamtx
+spec:
+  replicas: 1
+  # 송출 경로 상태를 한 서버만 갖도록 옛 파드가 내려간 뒤 새 파드를 띄운다.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: mediamtx
+  template:
+    metadata:
+      labels:
+        app: mediamtx
+    spec:
+      containers:
+        - name: mediamtx
+          image: bluenviron/mediamtx:1.21.3-ffmpeg
+          env:
+            # 인증·상태 훅은 backend Service로 보낸다. 어느 파드가 받아도 DB 상태만 바꾸므로 결과가 같다.
+            - name: MEDIAMTX_BACKEND_URL
+              value: http://backend:8080
+            - name: MTX_AUTHHTTPADDRESS
+              value: http://backend:8080/internal/mediamtx/auth
+            # 브라우저에 ICE 후보로 알릴 주소와 미디어 포트. Kubernetes 경로는 PC 브라우저(localhost)만 쓴다.
+            # compose(8189)와 동시에 떠도 겹치지 않게 8190을 쓰고, LoadBalancer 포트와 컨테이너 포트를 같게 둔다.
+            - name: MTX_WEBRTCADDITIONALHOSTS
+              value: localhost
+            - name: MTX_WEBRTCLOCALUDPADDRESS
+              value: ":8190"
+            - name: MTX_WEBRTCLOCALTCPADDRESS
+              value: ":8190"
+          ports:
+            - name: webrtc-http
+              containerPort: 8889
+            - name: api
+              containerPort: 9997
+            - name: webrtc-udp
+              containerPort: 8190
+              protocol: UDP
+            - name: webrtc-tcp
+              containerPort: 8190
+              protocol: TCP
+          readinessProbe:
+            tcpSocket:
+              port: webrtc-http
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: webrtc-http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: "1"
+              memory: 256Mi
+          volumeMounts:
+            - name: config
+              mountPath: /mediamtx.yml
+              subPath: mediamtx.yml
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: mediamtx-config
+---
+# 클러스터 안 주소: WHIP/WHEP HTTP(frontend nginx의 /media가 부른다)와 제어 API(backend의 송출 대조가 부른다).
+# ClusterIP라 호스트에서는 닿지 않는다. 특히 9997은 인증 없이 열려 있어 밖에 공개하지 않는다(ADR-0010).
+apiVersion: v1
+kind: Service
+metadata:
+  name: mediamtx
+spec:
+  selector:
+    app: mediamtx
+  ports:
+    - name: webrtc-http
+      port: 8889
+      targetPort: webrtc-http
+    - name: api
+      port: 9997
+      targetPort: api
+---
+# WebRTC 미디어(UDP·TCP 8190)를 localhost에 연다. 브라우저가 ICE 후보 localhost:8190으로 직접 붙는다.
+apiVersion: v1
+kind: Service
+metadata:
+  name: mediamtx-webrtc
+spec:
+  type: LoadBalancer
+  selector:
+    app: mediamtx
+  ports:
+    - name: webrtc-udp
+      port: 8190
+      targetPort: webrtc-udp
+      protocol: UDP
+    - name: webrtc-tcp
+      port: 8190
+      targetPort: webrtc-tcp
+      protocol: TCP

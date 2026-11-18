@@ -1,0 +1,13 @@
+# 5단계: 로컬 Kubernetes(Docker Desktop 내장 클러스터) 실행 경로
+#
+#   적용:              kubectl apply -k k8s
+#   앱만 지우기:       kubectl delete -k k8s/app      → DB·업로드 데이터(PVC)와 네임스페이스는 남는다
+#   데이터까지 지우기: kubectl delete -k k8s          → 네임스페이스와 PVC까지 지운다
+#
+# storage(네임스페이스·PVC)와 app(나머지)을 나눠, 앱을 지웠다 다시 올려도 데이터가 남게 한다.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - storage
+  - app

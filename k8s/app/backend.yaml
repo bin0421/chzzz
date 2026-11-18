@@ -1,0 +1,106 @@
+# Spring Boot 백엔드. 처음 2대로 뜨고, 5단계 티켓 03에서 HPA(2~5대, CPU 50%)의 대상이 된다.
+# 로그인 세션은 PostgreSQL(ADR-0009), 업로드 영상은 공유 uploads PVC에 있어서 어느 파드가 응답해도 결과가 같다.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+    spec:
+      # preStop 10초 + 스프링 graceful shutdown 최대 20초를 넉넉히 덮는다.
+      terminationGracePeriodSeconds: 45
+      containers:
+        - name: backend
+          # 로컬에서 `docker build -t chzzz-backend:k8s backend`로 빌드한 이미지.
+          # Docker Desktop 클러스터는 엔진 이미지 저장소를 레지스트리 미러로 받아 온다(직접 공유하지 않아 Never는 실패).
+          # Always로 두면 같은 태그로 다시 빌드한 뒤 `kubectl -n chzzz rollout restart deploy/backend`로 새 이미지를 쓴다.
+          image: chzzz-backend:k8s
+          imagePullPolicy: Always
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: app-secret
+          env:
+            - name: SERVER_PORT
+              value: "8080"
+            # 응답 헤더 X-Backend-Instance는 INSTANCE_NAME이 비어 있으면 호스트 이름(= 파드 이름)을 싣는다.
+            # 종료 신호를 받으면 새 요청을 받지 않고 처리 중인 요청을 최대 20초 기다린다.
+            - name: SERVER_SHUTDOWN
+              value: graceful
+            - name: SPRING_LIFECYCLE_TIMEOUT_PER_SHUTDOWN_PHASE
+              value: 20s
+            # /actuator/health/liveness·readiness를 켠다(Kubernetes 안에서는 자동으로 켜지지만 명시한다).
+            - name: MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED
+              value: "true"
+            # DB에 닿지 않는 파드에는 요청을 보내지 않는다. 마이그레이션(Flyway)은 시작 중에 끝나므로 그 전에는 준비되지 않은 상태다.
+            - name: MANAGEMENT_ENDPOINT_HEALTH_GROUP_READINESS_INCLUDE
+              value: readinessState,db
+            # 힙을 컨테이너 메모리 한도의 60%로 둔다(기본 25%는 한도 1Gi에서 너무 작다).
+            - name: JAVA_TOOL_OPTIONS
+              value: -XX:MaxRAMPercentage=60
+          ports:
+            - name: http
+              containerPort: 8080
+          # JVM 시작(+ 마이그레이션)이 끝날 때까지 liveness가 파드를 죽이지 않게 기다린다. 최대 5초 x 36 = 3분.
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            periodSeconds: 5
+            failureThreshold: 36
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 2
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          lifecycle:
+            # 파드가 내려갈 때 Service 엔드포인트에서 빠지는 것이 반영되기 전에 들어온 요청을 받도록 잠시 기다린 뒤 종료 신호를 받는다.
+            preStop:
+              sleep:
+                seconds: 10
+          # HPA는 CPU 사용률을 requests 기준으로 계산한다(티켓 03: 250m의 50%).
+          # 최대 5대 x 메모리 요청 512Mi가 노드(8GB)에 들어가도록 잡는다.
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          volumeMounts:
+            - name: uploads
+              mountPath: /app/data/uploads
+      volumes:
+        - name: uploads
+          persistentVolumeClaim:
+            claimName: uploads
+---
+# frontend nginx(/api)와 MediaMTX 훅이 부르는 주소(backend:8080). kube-proxy가 연결마다 파드를 고른다.
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+spec:
+  selector:
+    app: backend
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
