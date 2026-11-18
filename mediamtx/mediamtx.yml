@@ -4,8 +4,12 @@
 
 logLevel: info
 
+# 제어 API: 백엔드가 송출 중인 경로(/v3/paths/list)를 주기적으로 대조한다(ADR-0010).
+# compose·Kubernetes 내부 네트워크에서만 닿게 하고, 호스트 포트로 공개하지 않는다.
+api: yes
+apiAddress: :9997
+
 # 쓰지 않는 기능은 모두 끈다.
-api: no
 metrics: no
 pprof: no
 playback: no
@@ -28,7 +32,10 @@ webrtcAdditionalHosts: [localhost]
 # 인증: 매 송출·시청마다 백엔드에 묻는다 (MTX_AUTHHTTPADDRESS로 주소 지정).
 authMethod: http
 authHTTPAddress: http://backend:8080/internal/mediamtx/auth
-authHTTPExclude: []
+# 제어 API 요청은 백엔드 인증에 묻지 않는다. 백엔드는 api 동작을 허가하지 않으므로, 묻게 하면 대조가 막힌다.
+# 대신 9997 포트를 내부 네트워크에만 둔다(ADR-0010).
+authHTTPExclude:
+  - action: api
 
 pathDefaults:
   # 송출 중인 라이브 방송을 다른 송출이 가로채지 못하게 한다.

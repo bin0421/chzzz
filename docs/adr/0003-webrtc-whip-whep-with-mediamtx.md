@@ -1,5 +1,5 @@
 ---
-Status: accepted (2단계)
+Status: accepted (2단계), 재시작 정리는 ADR-0010이 보완(5단계)
 ---
 
 # 라이브 송출은 WebRTC(WHIP/WHEP)와 MediaMTX로 한다
