@@ -89,14 +89,6 @@ class LiveBroadcastService(
         events.publishEvent(BroadcastDeletedEvent(BroadcastType.LIVE_BROADCAST, id))
     }
 
-    /** 대기·방송 중인 라이브 방송을 모두 종료한다(재시작 정리). 종료한 개수를 돌려준다. */
-    @Transactional
-    fun endAllUnfinished(): Int {
-        val now = clock.instant()
-        return repository.findAllByStatusIn(listOf(LiveBroadcastStatus.PENDING, LiveBroadcastStatus.LIVE))
-            .count { it.end(now) }
-    }
-
     /** MediaMTX가 묻는 송출·시청 허가. 허용할 때만 true. 시간 초과된 대기는 먼저 종료로 판정한다. */
     @Transactional
     fun authorize(action: String?, pathName: String?, streamKey: String?): Boolean {

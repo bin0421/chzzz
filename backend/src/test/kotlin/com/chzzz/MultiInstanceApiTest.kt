@@ -169,6 +169,30 @@ class MultiInstanceApiTest {
         }
     }
 
+    @Test
+    fun `새 인스턴스가 떠도 다른 인스턴스의 대기·방송 중 라이브 방송은 그대로다`() {
+        val jdbc = instanceA.getBean(JdbcTemplate::class.java)
+        val now = Timestamp.from(Instant.now().truncatedTo(ChronoUnit.MICROS))
+        val pendingId = jdbc.queryForObject(
+            "INSERT INTO live_broadcast (title, status, stream_key_hash, created_at) " +
+                "VALUES ('A의 대기', 'PENDING', 'hash-pending', ?) RETURNING id",
+            Long::class.java, now,
+        )!!
+        val liveId = jdbc.queryForObject(
+            "INSERT INTO live_broadcast (title, status, stream_key_hash, created_at, started_at) " +
+                "VALUES ('A의 방송 중', 'LIVE', 'hash-live', ?, ?) RETURNING id",
+            Long::class.java, now, now,
+        )!!
+
+        // 스케일 아웃: 같은 DB를 쓰는 인스턴스 C가 새로 뜬다.
+        startInstance("instance-c", Files.createTempDirectory("instance-c-uploads").toString()).close()
+
+        val statuses = jdbc.queryForList(
+            "SELECT id, status FROM live_broadcast WHERE id IN ($pendingId, $liveId)",
+        ).associate { (it["id"] as Number).toLong() to it["status"] }
+        assertThat(statuses).isEqualTo(mapOf(pendingId to "PENDING", liveId to "LIVE"))
+    }
+
     private fun BrowserLikeClient.signUp(loginId: String, nickname: String) {
         val status = post(
             "/api/auth/signup",
