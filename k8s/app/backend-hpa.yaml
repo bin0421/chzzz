@@ -1,0 +1,29 @@
+# 백엔드 자동 스케일(5단계 티켓 03). 지표는 k8s/metrics-server가 준다(먼저 설치해야 TARGETS가 <unknown>이 아니다).
+#
+# 파드들의 평균 CPU 사용률(= 사용량 / requests.cpu 250m)이 50%(약 125m)를 넘으면 늘리고, 밑돌면 줄인다.
+#   필요 대수 = ceil(지금 대수 x 지금 평균 사용률 / 50%), 2~5대로 자른다.
+# 확인: kubectl -n chzzz get hpa backend -w
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: backend
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: backend
+  # 한 대가 죽어도 서비스가 이어지도록 2대 아래로는 줄이지 않는다. 노드(8GB)에 메모리 요청 512Mi x 5대까지 들어간다.
+  minReplicas: 2
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 50
+  behavior:
+    # 부하가 사라진 뒤 60초 동안의 권장 대수 중 가장 큰 값을 쓴다(기본 300초보다 짧게 해 1분 안팎에 줄어든다).
+    # 늘릴 때는 기본값(안정화 0초, 15초마다 2배 또는 4대까지)을 쓴다.
+    scaleDown:
+      stabilizationWindowSeconds: 60
