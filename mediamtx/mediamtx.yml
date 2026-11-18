@@ -1,6 +1,7 @@
 # chzzz용 MediaMTX 설정 (ADR-0003)
 # WebRTC(WHIP 송출, WHEP 시청)만 켜고, 송출·시청 허가와 상태 변화는 백엔드가 판단한다.
 # 환경에 따라 바뀌는 값은 docker-compose.yml이 MTX_* 환경변수로 덮어쓴다.
+# Kubernetes 경로는 사본 k8s/app/config/mediamtx.yml을 쓴다. 이 파일을 바꾸면 사본도 같이 바꾼다(ADR-0011).
 
 logLevel: info
 

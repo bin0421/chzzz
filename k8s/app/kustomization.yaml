@@ -1,0 +1,29 @@
+# DB·미디어 서버·백엔드·프론트. 데이터(PVC)는 ../storage에 있어서 이 폴더만 지워도 남는다.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: chzzz
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: chzzz
+
+resources:
+  - db.yaml
+  - mediamtx.yaml
+  - backend.yaml
+  - frontend.yaml
+
+# 설정·비밀값. 값은 docker-compose.yml의 기본값과 같다.
+# 생성기가 이름 끝에 내용 해시를 붙이므로, 값을 바꿔 다시 적용하면 그 값을 쓰는 파드가 새로 뜬다.
+configMapGenerator:
+  - name: app-config
+    envs:
+      - config/app.env
+  - name: mediamtx-config
+    files:
+      - mediamtx.yml=config/mediamtx.yml
+secretGenerator:
+  - name: app-secret
+    envs:
+      - config/secret.env

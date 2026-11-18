@@ -1,0 +1,25 @@
+# Docker Desktop 클러스터의 기본 StorageClass(standard = local-path)가 노드 디스크에 폴더를 만든다.
+---
+# PostgreSQL 데이터 (compose의 db-data 볼륨)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: db-data
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 2Gi
+---
+# 업로드 영상 (compose의 uploads 볼륨). 모든 backend 파드가 같은 볼륨을 RECORDING_STORAGE_DIR에 마운트한다(ADR-0001).
+# ReadWriteOnce는 "한 노드"에서만 마운트한다는 뜻이라, 노드가 1대인 이 클러스터에서는 여러 파드가 함께 쓸 수 있다.
+# 노드가 여러 대면 ReadWriteMany 스토리지(NFS 등)나 오브젝트 스토리지가 필요하다.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: uploads
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 10Gi
