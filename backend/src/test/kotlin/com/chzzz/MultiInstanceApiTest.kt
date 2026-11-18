@@ -1,7 +1,6 @@
-package com.chzzz.member
+package com.chzzz
 
-import com.chzzz.BackendApplication
-import com.chzzz.BrowserLikeClient
+import com.chzzz.member.TEST_PASSWORD
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.BeforeAll
@@ -16,12 +15,17 @@ import org.testcontainers.utility.DockerImageName
 import java.nio.file.Files
 
 /**
- * 5단계: 백엔드가 여러 대여도 로그인 상태가 이어진다(ADR-0009).
+ * 5단계: 백엔드가 여러 대여도 같은 결과를 낸다.
  * 같은 PostgreSQL을 쓰는 애플리케이션 두 개(인스턴스 A·B)를 실제 서버로 띄우고,
- * 브라우저 하나가 같은 쿠키로 두 인스턴스를 오가는 상황을 흉내 낸다.
+ * 브라우저 하나가 같은 쿠키로 두 인스턴스를 오가는 상황(로그인 세션 공유, ADR-0009)과
+ * 인스턴스마다 도는 주기 작업이 겹치는 상황을 흉내 낸다.
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-class SharedSessionApiTest {
+class MultiInstanceApiTest {
+
+    companion object {
+        const val INSTANCE_HEADER = "X-Backend-Instance"
+    }
 
     private val postgres = PostgreSQLContainer(DockerImageName.parse("postgres:17-alpine"))
     private lateinit var instanceA: ConfigurableApplicationContext
@@ -104,6 +108,21 @@ class SharedSessionApiTest {
         ) { status, _ -> status }
 
         assertThat(commentStatus).isEqualTo(201)
+    }
+
+    @Test
+    fun `응답마다 처리한 인스턴스 이름이 헤더에 실린다`() {
+        val onA = BrowserLikeClient(portA)
+        val onB = onA.onPort(portB)
+
+        onA.get("/api/recordings")
+        val fromA = onA.lastResponseHeaders.getFirst(INSTANCE_HEADER)
+        // 로그인이 필요해 401로 끝나는 응답(보안 필터가 쓴 응답)에도 실린다.
+        onB.get("/api/auth/me")
+        val fromB = onB.lastResponseHeaders.getFirst(INSTANCE_HEADER)
+
+        assertThat(fromA).isEqualTo("instance-a")
+        assertThat(fromB).isEqualTo("instance-b")
     }
 
     private fun BrowserLikeClient.signUp(loginId: String, nickname: String) {

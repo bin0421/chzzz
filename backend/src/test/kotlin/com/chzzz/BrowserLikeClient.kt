@@ -18,6 +18,10 @@ class BrowserLikeClient(
     private val client = RestClient.create("http://localhost:$port")
     val setCookieHeaders = mutableListOf<String>()
 
+    /** 마지막 응답의 헤더. */
+    var lastResponseHeaders: HttpHeaders = HttpHeaders()
+        private set
+
     /** 같은 쿠키 저장소를 함께 쓰는, 다른 포트의 서버로 가는 클라이언트. */
     fun onPort(otherPort: Int): BrowserLikeClient = BrowserLikeClient(otherPort, cookies)
 
@@ -40,6 +44,7 @@ class BrowserLikeClient(
     private fun cookieHeader(): String = cookies.entries.joinToString("; ") { "${it.key}=${it.value}" }
 
     private fun remember(headers: HttpHeaders) {
+        lastResponseHeaders = HttpHeaders.copyOf(headers)
         headers[HttpHeaders.SET_COOKIE].orEmpty().forEach { setCookie ->
             setCookieHeaders += setCookie
             val (name, value) = setCookie.substringBefore(";").split("=", limit = 2)
