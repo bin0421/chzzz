@@ -12,6 +12,7 @@ resources:
   - db.yaml
   - mediamtx.yaml
   - backend.yaml
+  - backend-hpa.yaml
   - frontend.yaml
 
 # 설정·비밀값. 값은 docker-compose.yml의 기본값과 같다.
