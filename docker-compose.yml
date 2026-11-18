@@ -62,6 +62,10 @@ services:
       RECORDING_MAX_UPLOAD_SIZE: ${RECORDING_MAX_UPLOAD_SIZE:-500MB}
       # 대기 상태의 라이브 방송이 송출 없이 이 시간을 넘기면 종료로 정리한다
       LIVE_PENDING_TIMEOUT: ${LIVE_PENDING_TIMEOUT:-60s}
+      # 방송 중인데 MediaMTX에 송출이 없는 상태가 이 시간을 넘기면 종료로 정리한다(ADR-0010)
+      LIVE_PUBLISH_GRACE: ${LIVE_PUBLISH_GRACE:-30s}
+      # 송출 대조에 쓰는 MediaMTX 제어 API. compose 내부 네트워크에서만 닿는다(호스트 포트 없음)
+      MEDIAMTX_API_URL: http://mediamtx:9997
       # 후원 결제(토스페이먼츠 결제위젯 테스트 모드). 기본값은 토스 문서에 공개된 결제위젯용 문서 키다.
       TOSS_CLIENT_KEY: ${TOSS_CLIENT_KEY:-test_gck_docs_Ovk5rk1EwkEbP0W43n07xlzm}
       TOSS_SECRET_KEY: ${TOSS_SECRET_KEY:-test_gsk_docs_OaPz8L5KdmQXkzRz3y47BMw6}

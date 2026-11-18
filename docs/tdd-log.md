@@ -230,3 +230,11 @@ red → green(→ refactor) 사이클마다 한 줄씩 기록한다. 4단계까�
 | 187 | [01] 같은 DB를 쓰는 인스턴스 A·B: A에서 로그인한 쿠키로 B의 `/api/auth/me`가 200, A 로그아웃 뒤 B가 401, B에서 댓글 작성(CSRF) 201 | 3개 모두 B가 `401`(세션이 A의 메모리에만 있음) | `spring-boot-starter-session-jdbc` + Flyway `V5__create_spring_session.sql`, 자동 스키마 생성 끔, 세션 쿠키 이름 `JSESSIONID` 유지 | MockMvc 테스트의 `MockHttpSession`이 세션 쿠키를 기억해 싣도록 테스트 설정 추가(기존 호출부 그대로), 세션 고정 테스트는 쿠키 값 비교로 바꿈 |
 | 188 | [01] 인스턴스 A·B의 응답(일반 응답과 보안 필터의 401)에 `X-Backend-Instance: instance-a`/`instance-b`가 실린다 | 헤더 값이 `null` | 가장 먼저 도는 `InstanceNameHeaderFilter`, `instance.name`(`INSTANCE_NAME`, 비우면 호스트 이름) | 두 인스턴스 테스트를 `MultiInstanceApiTest`로 이름 바꿈 |
 | 189 | [01] 두 인스턴스의 `LivePendingSweeper`를 8번 동시에 돌려도 예외 없이 시간 초과 대기 20개가 모두 `ENDED`, 종료 시각은 생성+60초 | red 아님(확인용: 같은 행을 같은 값으로 바꾸는 작업이라 그대로 둠) | - | - |
+| 190 | [01b] 같은 DB에 대기·방송 중 라이브가 있을 때 인스턴스 C가 새로 떠도 둘 다 그대로다 | 둘 다 `ENDED`(`LiveBroadcastStartupCleanup`이 시작할 때마다 모두 종료) | `LiveBroadcastStartupCleanup`·`endAllUnfinished` 삭제, 옛 재시작 정리 테스트 삭제 | - |
+| 191 | [01b] MediaMTX 제어 API 어댑터가 `GET /v3/paths/list`에서 `available`이 true인 경로 이름만 돌려준다(가짜 HTTP 서버) | 빈 목록(구현을 빈 결과로 둔 상태) | `MediaServer` 경계 + `MediaMtxApi`(`RestClient`), `mediamtx.api-url` | - |
+| 192 | [01b] 경로가 여러 페이지(`pageCount`)면 모든 페이지를 읽는다 | 첫 페이지 경로만 | `page`를 늘리며 `pageCount`까지 반복 | - |
+| 193 | [01b] MediaMTX가 오류(401)로 응답하거나 닿지 않으면 송출 여부를 모른다(`Unknown`)고 돌려준다 | `HttpClientErrorException`·`ResourceAccessException`이 그대로 던져짐 | `RestClientException`을 `Unknown`으로, 연결·읽기 제한 3초 | - |
+| 194 | [01b] 방송 중이 된 지 유예 시간(30초)이 지나도 MediaMTX에 송출이 없으면 대조 작업이 종료로 정리하고 종료 시각은 대조한 시각이다(가짜 `MediaServer`) | `LIVE` 그대로(빈 `LiveMediaReconciler`) | `LiveMediaReconciler`(`@Scheduled`, `live.reconcile-interval`) → `endLiveWithoutPublisher`(`live.publish-grace`, `LIVE_PUBLISH_GRACE`) | - |
+| 195 | [01b] 송출이 있는 방송 중은 그대로 / 방송 중이 된 직후 목록에 없어도 30초까지는 그대로, 31초에 종료 / MediaMTX에 닿지 않으면 종료하지 않음 / 대기는 대조로 종료하지 않음 | red 아님(194의 구현으로 동작, 티켓 항목 고정용) | - | - |
+| 196 | [01b] `mediamtx.api-url`이 비어 있으면(개발 실행 기본값) 송출이 없어도 방송 중을 종료하지 않는다 | `ENDED` | 주소가 비면 대조를 건너뛰고 시작 시 한 번 알림, 닿지 않을 때 경고 로그 | - |
+| 197 | [01b] 인스턴스 A·B의 송출 대조를 8번 동시에 돌려도(실제 `MediaMtxApi` + 가짜 HTTP 서버) 예외 없이 송출 중인 10개는 `LIVE`, 나머지 10개는 `ENDED` | red 아님(확인용: 이미 종료된 방송은 다시 종료하지 않고, 겹치면 뒤 트랜잭션이 행 잠금을 기다렸다 같은 상태를 쓴다) | - | - |

@@ -12,7 +12,10 @@ import org.springframework.http.HttpHeaders
 import org.springframework.http.MediaType
 import org.testcontainers.postgresql.PostgreSQLContainer
 import org.testcontainers.utility.DockerImageName
+import com.chzzz.live.LiveMediaReconciler
 import com.chzzz.live.LivePendingSweeper
+import com.sun.net.httpserver.HttpServer
+import java.net.InetSocketAddress
 import org.springframework.jdbc.core.JdbcTemplate
 import java.nio.file.Files
 import java.sql.Timestamp
@@ -43,8 +46,22 @@ class MultiInstanceApiTest {
     private val portA get() = instanceA.environment.getRequiredProperty("local.server.port").toInt()
     private val portB get() = instanceB.environment.getRequiredProperty("local.server.port").toInt()
 
+    /** 인스턴스들이 함께 묻는 가짜 MediaMTX 제어 API. [publishing]에 든 경로만 송출 중으로 답한다. */
+    private val mediaMtx = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+
+    @Volatile
+    private var publishing: Set<String> = emptySet()
+
     @BeforeAll
     fun startInstances() {
+        mediaMtx.createContext("/v3/paths/list") { exchange ->
+            val items = publishing.joinToString(",") { """{"name":"$it","ready":true,"available":true}""" }
+            val bytes = """{"itemCount":${publishing.size},"pageCount":1,"items":[$items]}""".toByteArray()
+            exchange.responseHeaders.add("Content-Type", "application/json")
+            exchange.sendResponseHeaders(200, bytes.size.toLong())
+            exchange.responseBody.use { it.write(bytes) }
+        }
+        mediaMtx.start()
         postgres.start()
         val storageDir = Files.createTempDirectory("shared-session-uploads")
         instanceA = startInstance("instance-a", storageDir.toString())
@@ -56,6 +73,7 @@ class MultiInstanceApiTest {
         if (::instanceA.isInitialized) instanceA.close()
         if (::instanceB.isInitialized) instanceB.close()
         postgres.stop()
+        mediaMtx.stop(0)
     }
 
     private fun startInstance(name: String, storageDir: String): ConfigurableApplicationContext =
@@ -67,6 +85,9 @@ class MultiInstanceApiTest {
             "--spring.datasource.password=${postgres.password}",
             "--recording.storage-dir=$storageDir",
             "--instance.name=$name",
+            "--mediamtx.api-url=http://127.0.0.1:${mediaMtx.address.port}",
+            // 송출 대조는 테스트가 직접 돌린다.
+            "--live.reconcile-interval=1h",
         )
 
     @Test
@@ -166,6 +187,72 @@ class MultiInstanceApiTest {
         assertThat(rows).hasSize(20).allSatisfy { row ->
             assertThat(row["status"]).isEqualTo("ENDED")
             assertThat(row["ended_at"]).isEqualTo(expectedEnd)
+        }
+    }
+
+    @Test
+    fun `새 인스턴스가 떠도 다른 인스턴스의 대기·방송 중 라이브 방송은 그대로다`() {
+        val jdbc = instanceA.getBean(JdbcTemplate::class.java)
+        val now = Timestamp.from(Instant.now().truncatedTo(ChronoUnit.MICROS))
+        val pendingId = jdbc.queryForObject(
+            "INSERT INTO live_broadcast (title, status, stream_key_hash, created_at) " +
+                "VALUES ('A의 대기', 'PENDING', 'hash-pending', ?) RETURNING id",
+            Long::class.java, now,
+        )!!
+        val liveId = jdbc.queryForObject(
+            "INSERT INTO live_broadcast (title, status, stream_key_hash, created_at, started_at) " +
+                "VALUES ('A의 방송 중', 'LIVE', 'hash-live', ?, ?) RETURNING id",
+            Long::class.java, now, now,
+        )!!
+
+        // 스케일 아웃: 같은 DB를 쓰는 인스턴스 C가 새로 뜬다.
+        startInstance("instance-c", Files.createTempDirectory("instance-c-uploads").toString()).close()
+
+        val statuses = jdbc.queryForList(
+            "SELECT id, status FROM live_broadcast WHERE id IN ($pendingId, $liveId)",
+        ).associate { (it["id"] as Number).toLong() to it["status"] }
+        assertThat(statuses).isEqualTo(mapOf(pendingId to "PENDING", liveId to "LIVE"))
+    }
+
+    @Test
+    fun `두 인스턴스가 송출 대조를 동시에 돌려도 예외 없이 같은 결과다`() {
+        val jdbc = instanceA.getBean(JdbcTemplate::class.java)
+        val startedAt = Timestamp.from(Instant.now().minus(Duration.ofMinutes(5)).truncatedTo(ChronoUnit.MICROS))
+        val ids = (1..20).map {
+            jdbc.queryForObject(
+                "INSERT INTO live_broadcast (title, status, stream_key_hash, created_at, started_at) " +
+                    "VALUES (?, 'LIVE', ?, ?, ?) RETURNING id",
+                Long::class.java, "겹치는 대조 $it", "live-hash-$it", startedAt, startedAt,
+            )!!
+        }
+        // 짝수 번째 방송만 아직 송출 중이다.
+        val stillPublishing = ids.filterIndexed { i, _ -> i % 2 == 0 }.toSet()
+        publishing = stillPublishing.map { "live/$it" }.toSet()
+        val reconcilers = listOf(instanceA, instanceB).map { it.getBean(LiveMediaReconciler::class.java) }
+        val ready = CountDownLatch(1)
+        val pool = Executors.newFixedThreadPool(4)
+
+        val runs = (1..8).map { i ->
+            pool.submit {
+                ready.await()
+                reconcilers[i % 2].reconcile()
+            }
+        }
+        ready.countDown()
+        runs.forEach { it.get(30, TimeUnit.SECONDS) } // 한 번이라도 예외가 나면 여기서 실패한다.
+        pool.shutdown()
+
+        val rows = jdbc.queryForList(
+            "SELECT id, status, ended_at FROM live_broadcast WHERE id IN (${ids.joinToString()})",
+        )
+        assertThat(rows).hasSize(20).allSatisfy { row ->
+            if ((row["id"] as Number).toLong() in stillPublishing) {
+                assertThat(row["status"]).isEqualTo("LIVE")
+                assertThat(row["ended_at"]).isNull()
+            } else {
+                assertThat(row["status"]).isEqualTo("ENDED")
+                assertThat(row["ended_at"]).isNotNull()
+            }
         }
     }
 

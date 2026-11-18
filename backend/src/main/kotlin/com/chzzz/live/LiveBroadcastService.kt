@@ -23,6 +23,7 @@ class LiveBroadcastService(
     private val events: ApplicationEventPublisher,
     private val clock: Clock,
     @Value("\${live.pending-timeout}") private val pendingTimeout: Duration,
+    @Value("\${live.publish-grace}") private val publishGrace: Duration,
 ) {
     /** 라이브 방송을 대기 상태로 만들고, 송출 키 원문은 결과로 한 번만 돌려준다. 시작한 회원이 소유자가 된다. */
     @Transactional
@@ -89,11 +90,16 @@ class LiveBroadcastService(
         events.publishEvent(BroadcastDeletedEvent(BroadcastType.LIVE_BROADCAST, id))
     }
 
-    /** 대기·방송 중인 라이브 방송을 모두 종료한다(재시작 정리). 종료한 개수를 돌려준다. */
+    /**
+     * 송출 대조: 방송 중인데 [publishingPaths]에 없는 방송을 종료한다. 방송 중이 된 지 유예 시간이 지나지 않은
+     * 방송은 MediaMTX 목록 반영이 늦을 수 있어 그대로 둔다. 종료한 개수를 돌려준다.
+     */
     @Transactional
-    fun endAllUnfinished(): Int {
+    fun endLiveWithoutPublisher(publishingPaths: Set<String>): Int {
         val now = clock.instant()
-        return repository.findAllByStatusIn(listOf(LiveBroadcastStatus.PENDING, LiveBroadcastStatus.LIVE))
+        val publishing = publishingPaths.mapNotNull(MediaPaths::idOf).toSet()
+        return repository.findAllByStatusAndStartedAtBefore(LiveBroadcastStatus.LIVE, now.minus(publishGrace))
+            .filter { it.id !in publishing }
             .count { it.end(now) }
     }
 

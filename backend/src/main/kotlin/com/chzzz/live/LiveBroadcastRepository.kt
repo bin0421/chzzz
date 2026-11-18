@@ -12,7 +12,7 @@ interface LiveBroadcastRepository : JpaRepository<LiveBroadcast, Long> {
     @EntityGraph(attributePaths = ["owner"])
     fun findTop10ByStatusOrderByEndedAtDescIdDesc(status: LiveBroadcastStatus): List<LiveBroadcast>
 
-    fun findAllByStatusIn(statuses: Collection<LiveBroadcastStatus>): List<LiveBroadcast>
+    fun findAllByStatusAndStartedAtBefore(status: LiveBroadcastStatus, startedAt: Instant): List<LiveBroadcast>
 
     fun findAllByStatusAndCreatedAtBefore(status: LiveBroadcastStatus, createdAt: Instant): List<LiveBroadcast>
 }
