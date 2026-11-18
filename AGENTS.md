@@ -25,7 +25,7 @@
 
 ## 발표 기록
 
-최종 발표(4단계 완료 후 PPT)의 재료를 작업하면서 남긴다.
+최종 발표(5단계 완료 후 PPT)의 재료를 작업하면서 남긴다.
 
 - 되돌리기 어렵고 트레이드오프가 있었던 결정은 `docs/adr/`에 ADR로 남긴다.
 - 단계를 마칠 때 `docs/presentation-notes.md`의 해당 단계 섹션(결정, 결과·수치, 어려웠던 점)을 채운다.
@@ -63,17 +63,28 @@
   - 같은 승인 통지가 반복되어도 중복 적립하지 않는다(코드와 저장 구조 모두).
   - 방송별 후원 내역과 합계를 보여 준다.
   - README에 실행 방법·환경변수 예시·구현 범위·직접 확인 절차(테스트 결제 성공·실패·취소, 승인 통지 중복)를 적는다.
-- 범위: 1단계는 등록·목록·상세·재생만(수정·삭제·검색·페이지네이션·썸네일 제외, 외부 URL은 `<video>`로 바로 재생되는 주소만). 2단계는 송출 시작·종료와 시청, 상태 표시만(다시보기 저장·시청자 수·채팅·TURN 제외). 3단계는 회원(아이디·비밀번호·닉네임), 방송 제목 수정·삭제, 댓글 작성·목록·수정·삭제만(이메일 인증·비밀번호 찾기·탈퇴·관리자·로그인 시도 제한·실시간 채팅·송출 재개 제외). 4단계는 방송 화면에서 소유자에게 결제위젯 테스트 결제로 후원, 서버 승인 확인, 중복 확정 방지, 방송별 후원 내역·합계만(후원 메시지·환불·정산·가상계좌 입금 처리·대기 주문 만료 정리 제외). 범위 밖은 README에 명시한다.
-- 기술 스택: 백엔드 Spring Boot 4.1.x + Kotlin, JDK 21, Gradle Kotlin DSL(wrapper). 프론트엔드 React + Vite + TypeScript, React Router, `fetch`. DB PostgreSQL(Docker Compose). 업로드 파일은 로컬 디스크(`RECORDING_STORAGE_DIR`)에 두고 Range 요청으로 스트리밍한다. 라이브 송출은 WebRTC WHIP/WHEP + MediaMTX(ADR-0003), 휴대폰 HTTPS는 Caddy 로컬 CA(ADR-0004). 인증은 Spring Security 서버 세션 쿠키 + CSRF 토큰(ADR-0005), 송출 키는 MediaMTX 송출 허가 전용(ADR-0006). 후원 결제는 토스페이먼츠 결제위젯 테스트 모드 + 서버 승인 확인(ADR-0007), 중복 확정 방지는 멱등 처리 + 유니크 제약·행 잠금 + 조회 API 재확인(ADR-0008).
-- 구조: 루트에 `backend/`, `frontend/`, `docker-compose.yml`, `README.md`. 라이브 송출 설정은 `mediamtx/`(MediaMTX), `caddy/`(HTTPS)에 둔다.
-- 실행: `docker compose up --build`로 전체 실행(채점용, 휴대폰은 `https://<PUBLIC_HOST>:8443`)과, `db`·`mediamtx`만 compose + `./gradlew bootRun` + `npm run dev`(개발용, PC `localhost`)를 모두 지원한다. 휴대폰 확인은 전체 실행에서만 한다.
-- 테스트: 백엔드 JUnit 5 + Spring Boot Test + Testcontainers(PostgreSQL), MediaMTX 훅은 내부 엔드포인트 호출로 흉내 낸다. 프론트 Vitest + React Testing Library, `fetch`와 미디어 어댑터(카메라·WebRTC)만 가짜로 바꾼다. E2E 자동화 대신 README의 직접 확인 절차.
-- 진행: 과제는 4단계로 진행했고 4단계까지 완료했다. 각 단계의 기능은 그 단계에서만 구현한다.
+- 요구사항 (5단계, 완료):
+  - 1~4단계 기능을 유지한다.
+  - 서버를 컨테이너 이미지로 만든다.
+  - 로컬 클러스터나 오케스트레이터에서 여러 인스턴스로 실행한다.
+  - CPU 사용률이나 요청 수 같은 지표로, 최소·최대 범위 안에서 자동 스케일 아웃·인 한다.
+  - 여러 인스턴스 앞에서 요청을 분산한다.
+  - 세션, 영상, 라이브 상태, 댓글, 도네이션을 공용 저장소에 둔다.
+  - 부하 스크립트를 넣는다.
+  - 클라우드 배포는 요구하지 않는다.
+  - README에 실행 방법·환경변수 예시·구현 범위·스케일 아웃/인 확인 절차·확인한 인스턴스 수 변화를 적는다.
+- 범위: 1단계는 등록·목록·상세·재생만(수정·삭제·검색·페이지네이션·썸네일 제외, 외부 URL은 `<video>`로 바로 재생되는 주소만). 2단계는 송출 시작·종료와 시청, 상태 표시만(다시보기 저장·시청자 수·채팅·TURN 제외). 3단계는 회원(아이디·비밀번호·닉네임), 방송 제목 수정·삭제, 댓글 작성·목록·수정·삭제만(이메일 인증·비밀번호 찾기·탈퇴·관리자·로그인 시도 제한·실시간 채팅·송출 재개 제외). 4단계는 방송 화면에서 소유자에게 결제위젯 테스트 결제로 후원, 서버 승인 확인, 중복 확정 방지, 방송별 후원 내역·합계만(후원 메시지·환불·정산·가상계좌 입금 처리·대기 주문 만료 정리 제외). 5단계는 로컬 Docker Desktop Kubernetes에서 백엔드 2~5대를 CPU 50% HPA로 자동 스케일, frontend nginx 2대 고정, db·mediamtx 각 1대, 세션은 PostgreSQL·업로드는 공유 볼륨, k6 부하·상태 유지 확인 스크립트만(클라우드·여러 노드·인그레스·Kubernetes 경로의 HTTPS와 휴대폰 송출·DB와 MediaMTX 이중화·사용자 지정 지표 스케일·RWX·오브젝트 스토리지·분산 락·롤링 업데이트 튜닝·성능 목표 제외). 범위 밖은 README에 명시한다.
+- 기술 스택: 백엔드 Spring Boot 4.1.x + Kotlin, JDK 21, Gradle Kotlin DSL(wrapper). 프론트엔드 React + Vite + TypeScript, React Router, `fetch`. DB PostgreSQL(Docker Compose). 업로드 파일은 로컬 디스크(`RECORDING_STORAGE_DIR`)에 두고 Range 요청으로 스트리밍한다. 라이브 송출은 WebRTC WHIP/WHEP + MediaMTX(ADR-0003), 휴대폰 HTTPS는 Caddy 로컬 CA(ADR-0004). 인증은 Spring Security 서버 세션 쿠키 + CSRF 토큰(ADR-0005), 송출 키는 MediaMTX 송출 허가 전용(ADR-0006). 후원 결제는 토스페이먼츠 결제위젯 테스트 모드 + 서버 승인 확인(ADR-0007), 중복 확정 방지는 멱등 처리 + 유니크 제약·행 잠금 + 조회 API 재확인(ADR-0008). 세션은 Spring Session JDBC로 PostgreSQL에 둔다(ADR-0009, Flyway `V5`). 라이브 상태는 시작 시 정리 대신 MediaMTX 제어 API와 주기 대조한다(ADR-0010). 여러 인스턴스 실행은 Docker Desktop 내장 Kubernetes + kustomize, 자동 스케일은 HPA(`autoscaling/v2`) + metrics-server v0.9.1(ADR-0011). 부하는 k6(`grafana/k6:2.3.0`, `docker run`).
+- 구조: 루트에 `backend/`, `frontend/`, `docker-compose.yml`, `README.md`. 라이브 송출 설정은 `mediamtx/`(MediaMTX), `caddy/`(HTTPS)에 둔다. Kubernetes 매니페스트는 `k8s/`(`storage`: 네임스페이스·PVC, `app`: 앱·HPA, `metrics-server`: 공용 애드온), k6 스크립트는 `load/`에 둔다.
+- 실행: `docker compose up --build`로 전체 실행(채점용, 휴대폰은 `https://<PUBLIC_HOST>:8443`)과, `db`·`mediamtx`만 compose + `./gradlew bootRun` + `npm run dev`(개발용, PC `localhost`)를 모두 지원한다. 휴대폰 확인은 전체 실행에서만 한다. 5단계 Kubernetes 경로는 이미지 빌드(`chzzz-backend:k8s`, `chzzz-frontend:k8s`) → `kubectl apply -k k8s/metrics-server` → `kubectl apply -k k8s`로 올리고 PC `http://localhost:8000`으로만 확인한다. 이 PC의 8080은 다른 JDK 프로세스가 쓰므로 진입 포트로 쓰지 않고 그 프로세스를 멈추지 않는다.
+- 테스트: 백엔드 JUnit 5 + Spring Boot Test + Testcontainers(PostgreSQL), MediaMTX 훅은 내부 엔드포인트 호출로, MediaMTX 제어 API는 가짜 HTTP 서버로 흉내 낸다. 여러 인스턴스는 같은 DB를 쓰는 실제 서버 두 개로 확인한다. Kubernetes 매니페스트·HPA·부하 스크립트는 `--dry-run=server`와 README 직접 확인(실제 출력)으로 확인한다. 프론트 Vitest + React Testing Library, `fetch`와 미디어 어댑터(카메라·WebRTC)만 가짜로 바꾼다. E2E 자동화 대신 README의 직접 확인 절차.
+- 진행: 과제는 5단계로 진행했고 5단계까지 완료했다. 각 단계의 기능은 그 단계에서만 구현한다.
   1. 녹화방송 등록·시청 (TDD)
   2. 라이브 방송 송출
   3. 인증·인가, 댓글
   4. 도네이션
-- 제출 형식: 4단계까지 끝난 최종본을 GitHub 저장소에 올리고, 같은 최종본으로 PPT 발표를 한다. 마감: (추가 예정)
+  5. 로컬 오토스케일
+- 제출 형식: 5단계까지 끝난 최종본을 GitHub 저장소에 올리고, 같은 최종본으로 PPT 발표를 한다. 마감: (추가 예정)
 
 ## Agent skills
 
