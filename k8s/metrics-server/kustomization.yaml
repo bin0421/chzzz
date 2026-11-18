@@ -1,0 +1,32 @@
+# 5단계 티켓 03: HPA가 CPU 사용률을 읽도록 metrics-server를 설치한다(kubectl top도 이걸로 동작).
+#
+#   설치: kubectl apply -k k8s/metrics-server
+#   삭제: kubectl delete -k k8s/metrics-server
+#
+# kube-system 네임스페이스의 클러스터 공용 애드온이라 chzzz 앱(k8s/)과 따로 둔다.
+# 그래야 `kubectl delete -k k8s`로 앱을 지워도 metrics-server는 남는다.
+#
+# components.yaml은 공식 릴리스 매니페스트를 고치지 않고 그대로 둔 사본이다(오프라인 재현, 무엇을 설치하는지 저장소에서 보이게).
+#   출처: https://github.com/kubernetes-sigs/metrics-server/releases/download/v0.9.1/components.yaml
+#   버전: v0.9.1 (2026-10-29), 이미지 registry.k8s.io/metrics-server/metrics-server:v0.9.1
+#   sha256: 3c7f57cdbee0f57fb0259a150e8f6d6cb4f29d72d1aa5dce8803151dd6d4c2a1
+# 버전을 올릴 때는 같은 URL의 태그만 바꿔 다시 받고, 아래 패치는 그대로 둔다.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - components.yaml
+
+patches:
+  # Docker Desktop(kind 방식) 노드의 kubelet은 공인 CA가 아닌 자체 서명 인증서로 10250 포트를 연다.
+  # 그 인증서에는 metrics-server가 접속하는 노드 IP가 SAN으로 들어 있지 않아 기본 설정으로는 TLS 검증에 실패하고
+  # (`x509: cannot validate certificate ... doesn't contain any IP SANs`) kubectl top·HPA가 지표를 받지 못한다.
+  # 로컬 단일 노드 개발 클러스터라 kubelet 인증서 검증만 끈다. 운영 클러스터에서는 kubelet 서빙 인증서를 발급해 이 옵션을 빼야 한다.
+  - target:
+      kind: Deployment
+      name: metrics-server
+      namespace: kube-system
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/args/-
+        value: --kubelet-insecure-tls
