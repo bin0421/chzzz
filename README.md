@@ -6,13 +6,14 @@
 - 프론트엔드: React + Vite + TypeScript, React Router
 - 라이브 송출: WebRTC WHIP(송출)·WHEP(시청) + [MediaMTX](https://github.com/bluenviron/mediamtx) ([ADR-0003](docs/adr/0003-webrtc-whip-whep-with-mediamtx.md))
 - 휴대폰 HTTPS: Caddy 로컬 인증서 ([ADR-0004](docs/adr/0004-https-with-caddy-local-ca.md))
-- 인증: Spring Security 서버 세션 쿠키 + CSRF 토큰 ([ADR-0005](docs/adr/0005-session-cookie-auth-with-spring-security.md)), 송출 키는 송출 허가 전용 ([ADR-0006](docs/adr/0006-stream-key-only-for-publish.md))
+- 인증: Spring Security 서버 세션 쿠키 + CSRF 토큰 ([ADR-0005](docs/adr/0005-session-cookie-auth-with-spring-security.md)), 세션은 PostgreSQL에 저장 ([ADR-0009](docs/adr/0009-shared-session-in-postgresql.md)), 송출 키는 송출 허가 전용 ([ADR-0006](docs/adr/0006-stream-key-only-for-publish.md))
 - 후원 결제: [토스페이먼츠](https://docs.tosspayments.com/reference) 결제위젯 **테스트 모드** + 서버 승인 확인 ([ADR-0007](docs/adr/0007-toss-payments-test-mode-with-server-confirmation.md)), 중복 확정 방지 ([ADR-0008](docs/adr/0008-idempotent-donation-confirmation.md))
-- 실행: Docker Compose(db, backend, frontend, mediamtx, caddy)
+- 라이브 상태 정리: MediaMTX 송출 목록과 주기 대조 ([ADR-0010](docs/adr/0010-reconcile-live-status-with-mediamtx.md))
+- 실행: Docker Compose(db, backend, frontend, mediamtx, caddy), 그리고 5단계의 로컬 Kubernetes(Docker Desktop 내장 클러스터 + kustomize, 백엔드 2~5대 HPA 자동 스케일, [ADR-0011](docs/adr/0011-docker-desktop-kubernetes-with-kustomize.md))
 
 ## 단계별 구현 내역
 
-과제는 4단계로 진행합니다.
+과제는 5단계로 진행합니다.
 
 | 단계 | 내용 | 상태 |
 | --- | --- | --- |
@@ -20,6 +21,7 @@
 | 2 | 라이브 방송 송출·시청, 방송 중·종료 표시 (TDD) | 완료 |
 | 3 | 회원가입·로그인, 방송 소유자 권한(수정·삭제·송출 제어), 방송별 댓글 (TDD) | 완료 |
 | 4 | 방송자에게 테스트 결제 후원, 서버 승인 확인, 중복 확정 방지, 방송별 후원 내역·합계 (TDD) | 완료 |
+| 5 | 로컬 Kubernetes에서 백엔드 여러 대 실행, CPU 기반 자동 스케일 아웃·인(2~5대), 요청 분산, 세션·영상·방송 상태를 공용 저장소에, k6 부하·상태 유지 확인 스크립트 (세션 공유·라이브 대조는 TDD) | 완료 |
 
 ## 실행 방법
 
@@ -73,6 +75,51 @@ cd backend && SERVER_PORT=8081 ./gradlew bootRun
 ```bash
 cd frontend && VITE_API_PROXY_TARGET=http://localhost:8081 npm run dev
 ```
+
+개발 실행은 `MEDIAMTX_API_URL`이 비어 있어 송출 대조를 하지 않습니다. 라이브 방송은 끊김 통지와 대기 시간 초과로만 정리됩니다([라이브 상태 정리](#라이브-상태-정리-adr-0010)).
+
+### Kubernetes 실행 (5단계, 자동 스케일)
+
+백엔드를 여러 대로 띄우고 CPU 사용률에 따라 2~5대로 자동으로 늘리고 줄이는 실행 경로입니다. PC 브라우저(`http://localhost:8000`)로만 확인합니다. 휴대폰 송출은 위 전체 실행(compose)으로 합니다. 구성과 상태 저장 위치는 [여러 인스턴스와 자동 스케일](#여러-인스턴스와-자동-스케일-5단계)에 있습니다.
+
+필요한 도구: Docker Desktop(내장 Kubernetes), `kubectl`(Docker Desktop에 들어 있음). k6는 Docker 이미지로 실행하므로 설치하지 않습니다. 모든 명령은 저장소 루트에서 실행합니다.
+
+1. **클러스터 켜기**: Docker Desktop 설정의 **Kubernetes**에서 클러스터를 켭니다(이 과제는 kind 방식 단일 노드로 확인했습니다). 켜지면 컨텍스트를 고르고 노드가 `Ready`인지 봅니다.
+   ```bash
+   kubectl config use-context docker-desktop
+   ```
+   ```bash
+   kubectl get nodes
+   ```
+2. **이미지 빌드**: compose와 같은 Dockerfile로 `:k8s` 태그 이미지를 만듭니다. Docker Desktop 클러스터는 엔진의 이미지를 레지스트리 미러로 받아 오므로 따로 올리지 않습니다(그래서 매니페스트의 `imagePullPolicy`는 `Always`입니다. `Never`로는 이미지를 찾지 못했습니다).
+   ```bash
+   docker build -t chzzz-backend:k8s backend
+   ```
+   ```bash
+   docker build -t chzzz-frontend:k8s frontend
+   ```
+3. **metrics-server 설치**(처음 한 번): HPA와 `kubectl top`이 CPU 사용률을 읽는 클러스터 공용 애드온입니다. 공식 릴리스 매니페스트 v0.9.1을 [k8s/metrics-server/](k8s/metrics-server/)에 그대로 두고 `--kubelet-insecure-tls`만 패치했습니다(이유는 그 폴더의 `kustomization.yaml` 주석). `kubectl top nodes`가 CPU·메모리 값을 보여 주면 됩니다.
+   ```bash
+   kubectl apply -k k8s/metrics-server
+   ```
+4. **서비스 올리기**: 네임스페이스 `chzzz`에 DB·업로드 볼륨과 db, mediamtx, backend(2대 + HPA), frontend(2대)를 올립니다. 파드 6개가 모두 `1/1 Running`이 되면 접속합니다(백엔드는 JVM 시작과 마이그레이션 때문에 1분 안팎 걸립니다).
+   ```bash
+   kubectl apply -k k8s
+   ```
+   ```bash
+   kubectl -n chzzz get pods
+   ```
+5. **접속**: **http://localhost:8000** (compose의 3000과 겹치지 않습니다). 라이브 시청·송출의 WebRTC 미디어는 `localhost:8190`(UDP·TCP)으로 오갑니다.
+6. **이미지를 다시 빌드했을 때**: 같은 태그로 빌드한 뒤 다시 띄웁니다.
+   ```bash
+   kubectl -n chzzz rollout restart deploy/backend deploy/frontend
+   ```
+7. **정리**
+   - 앱만 지우기(DB·업로드 데이터와 네임스페이스는 남음): `kubectl delete -k k8s/app`
+   - 데이터까지 지우기: `kubectl delete -k k8s`
+   - metrics-server 지우기: `kubectl delete -k k8s/metrics-server` (`k8s`를 지워도 남는 별도 애드온입니다)
+
+`kubectl apply -k k8s --dry-run=server`로 매니페스트를 미리 검사할 수 있습니다. 클러스터에 `chzzz` 네임스페이스가 아직 없으면 실패하므로, 처음에는 `kubectl apply -f k8s/storage/namespace.yaml`을 먼저 합니다.
 
 ## 휴대폰 연결
 
@@ -138,7 +185,7 @@ cd frontend && VITE_API_PROXY_TARGET=http://localhost:8081 npm run dev
 
 - 로그인하면 서버가 세션을 만들고 브라우저는 `HttpOnly` 세션 쿠키(`JSESSIONID`)만 가집니다. 로그인할 때 세션 ID를 새로 바꿉니다.
 - 쿠키는 브라우저가 자동으로 붙이므로, 다른 사이트의 요청 위조(CSRF)를 막으려고 서버가 `XSRF-TOKEN` 쿠키를 내려 주고 상태를 바꾸는 모든 요청에 같은 값을 `X-XSRF-TOKEN` 헤더로 받습니다. 헤더가 없거나 틀리면 403입니다.
-- 세션은 백엔드 메모리에 있어서 **백엔드를 재시작하면 모두 로그아웃**됩니다. 휴대폰(`https://<PUBLIC_HOST>:8443`)과 PC(`http://localhost:3000`)는 주소가 달라 로그인도 각각 따로 합니다.
+- 세션은 백엔드 메모리가 아니라 **PostgreSQL**(Spring Session JDBC, Flyway `V5`)에 있습니다([ADR-0009](docs/adr/0009-shared-session-in-postgresql.md)). 그래서 **백엔드를 재시작해도 로그인이 유지**되고, 백엔드가 여러 대여도 어느 인스턴스가 응답하든 같은 로그인 상태이며, 로그아웃하면 모든 인스턴스에서 로그아웃됩니다(3·4단계까지는 메모리에 있어 재시작하면 모두 로그아웃되었습니다). 휴대폰(`https://<PUBLIC_HOST>:8443`)과 PC(`http://localhost:3000`)는 주소가 달라 로그인도 각각 따로 합니다.
 - 로그인이 필요한 화면(녹화방송 등록, 방송 시작)에 비로그인으로 들어가면 로그인 화면으로 갔다가, 로그인·가입하면 원래 화면으로 돌아옵니다.
 
 ### 송출 키 (ADR-0006)
@@ -146,7 +193,7 @@ cd frontend && VITE_API_PROXY_TARGET=http://localhost:8081 npm run dev
 1. 로그인한 회원이 방송 시작을 누르면 서버가 라이브 방송을 **대기**로 만들고 그 회원을 소유자로 기록한 뒤, 그 방송 전용 **송출 키**를 **한 번만** 돌려줍니다. 서버에는 키의 SHA-256 해시만 저장합니다.
 2. 송출 화면은 그 키로 MediaMTX에 WHIP 송출을 시작합니다. MediaMTX는 송출·시청 요청마다 백엔드 내부 엔드포인트에 허가를 묻고, 백엔드는 대기인 방송에 맞는 키일 때만 송출을, 방송 중일 때만 시청을 허가합니다. MediaMTX는 브라우저의 세션 쿠키를 넘겨주지 않아서 송출 허가만은 키로 판단합니다.
 3. **종료·제목 수정·삭제는 송출 키가 아니라 로그인한 소유자인지로** 검사합니다. 송출하던 탭을 닫았거나 다른 기기에서도 소유자는 로그인만 하면 방송을 끝낼 수 있고, 송출 키가 새어도 그것으로 방송을 끄거나 바꿀 수는 없습니다.
-4. 영상이 들어오면 **방송 중**, 소유자가 종료하거나 연결이 끊기면 **종료**가 됩니다. 영상이 60초(`LIVE_PENDING_TIMEOUT`) 안에 들어오지 않은 대기도 종료로 정리됩니다.
+4. 영상이 들어오면 **방송 중**, 소유자가 종료하거나 연결이 끊기면 **종료**가 됩니다. 영상이 60초(`LIVE_PENDING_TIMEOUT`) 안에 들어오지 않은 대기도 종료로 정리되고, 방송 중인데 MediaMTX에 송출이 없는 상태가 30초(`LIVE_PUBLISH_GRACE`)를 넘기면 송출 대조가 종료로 정리합니다([라이브 상태 정리](#라이브-상태-정리-adr-0010)).
 5. 목록·상세 응답에는 키가 나오지 않습니다. 백엔드의 `/internal/*` 엔드포인트는 Caddy·nginx가 바깥에서 404로 막습니다.
 
 ## 후원과 테스트 결제
@@ -198,6 +245,74 @@ cd frontend && VITE_API_PROXY_TARGET=http://localhost:8081 npm run dev
 - **테스트 결제**: 결제수단은 **신용·체크카드**로 확인합니다. 토스 [테스트 환경 안내](https://docs.tosspayments.com/guides/v2/get-started/environment)에 따르면 테스트 키로 한 카드 결제는 실제 출금 없이 승인 흐름만 거칩니다. **이 과제의 확인에서는 카드 정보를 넣는 결제를 끝까지 진행하지 않았습니다**(아래 [직접 확인 절차](#후원-4단계-테스트-결제)의 범위 참고). 위젯에 보이는 간편결제·계좌이체 등도 테스트로 열리지만 확인 대상은 아닙니다.
 - **실패 재현**: 토스는 승인 API에 `TossPayments-Test-Code` 헤더를 붙여 카드사 거절 같은 실패를 흉내 내게 해 줍니다([오류 코드](https://docs.tosspayments.com/reference/error-codes)). 이 프로젝트는 운영 코드에 테스트 전용 설정을 넣지 않고, 대신 **결제하지 않은 가짜 결제 키로 확인 요청**을 보내 "토스 거절 → 실패" 경로를 카드 없이 재현합니다(아래 직접 확인 22).
 
+## 여러 인스턴스와 자동 스케일 (5단계)
+
+백엔드를 여러 대로 띄우고, 부하에 따라 Kubernetes HPA가 **2~5대** 사이에서 자동으로 늘리고 줄입니다. 백엔드는 자기 메모리나 디스크에 상태를 두지 않으므로 어느 인스턴스가 응답해도 결과가 같고, 인스턴스가 늘거나 줄어도 로그인·방송·댓글·후원이 그대로입니다. 실행 방법은 [Kubernetes 실행](#kubernetes-실행-5단계-자동-스케일), 확인 절차와 실제 출력은 [스케일 아웃/인과 상태 유지](#스케일-아웃인과-상태-유지-5단계-kubernetes)에 있습니다.
+
+### 구성 (Kubernetes 경로, 네임스페이스 `chzzz`)
+
+| 구성 요소 | 대수 | 바깥에서 닿는 주소 | 설명 |
+| --- | --- | --- | --- |
+| `frontend` (nginx) | 2 고정 | `localhost:8000` (LoadBalancer) | 진입점. 정적 파일, `/api`는 `backend` Service로, `/media`는 `mediamtx`로 넘김 |
+| `backend` (Spring Boot) | **2~5 (HPA)** | 없음 (ClusterIP `backend:8080`) | 처음 2대로 뜨고 HPA가 대수를 정함 |
+| `db` (PostgreSQL 17) | 1 | 없음 | PVC `db-data` |
+| `mediamtx` | 1 | WebRTC 미디어 `localhost:8190` UDP·TCP (LoadBalancer) | WHIP/WHEP HTTP(8889)와 제어 API(9997)는 클러스터 안에서만 닿음 |
+
+Caddy(휴대폰 HTTPS)는 Kubernetes 경로에 올리지 않습니다. 매니페스트는 [k8s/](k8s/)에 일반 YAML + kustomize로 있습니다: `k8s/storage`(네임스페이스·PVC), `k8s/app`(나머지와 HPA), `k8s/metrics-server`(공용 애드온).
+
+### 상태를 어디에 두나
+
+| 상태 | 저장 위치 | 설명 |
+| --- | --- | --- |
+| 로그인 세션 | **PostgreSQL** (`SPRING_SESSION` 테이블, Flyway `V5`) | Spring Session JDBC([ADR-0009](docs/adr/0009-shared-session-in-postgresql.md)). 쿠키 이름(`JSESSIONID`)·속성, 로그인 시 세션 ID 교체, 로그아웃 무효화는 3단계와 같음. 만료 세션은 Spring Session 기본 정리 작업이 지움 |
+| CSRF 토큰 | 브라우저 쿠키 `XSRF-TOKEN` | 서버에 저장하지 않아 인스턴스끼리 공유할 것이 없음 |
+| 업로드 영상 | **공유 볼륨** (PVC `uploads`) | 모든 백엔드 파드가 같은 볼륨을 `RECORDING_STORAGE_DIR`(`/app/data/uploads`)에 마운트. 코드는 1단계 그대로([ADR-0001](docs/adr/0001-local-disk-upload-storage.md)) |
+| 녹화방송, 라이브 방송과 상태(대기·방송 중·종료), 회원, 댓글, 후원·승인 통지 기록 | **PostgreSQL** (PVC `db-data`) | 1~4단계 그대로 |
+| 송출 중인 영상 경로 | MediaMTX 1대 | 영상은 저장하지 않음. 방송 상태 판단은 DB가 기준이고 MediaMTX는 대조에만 씀 |
+
+- 업로드 볼륨은 `ReadWriteOnce`(local-path)입니다. 이 클러스터는 노드가 1대라 여러 파드가 함께 마운트할 수 있습니다. **노드가 여러 대면** `ReadWriteMany` 스토리지(NFS 등)나 오브젝트 스토리지가 필요합니다(이 과제 범위 밖).
+- 백엔드 주기 작업(대기 시간 초과 정리, 송출 대조)은 인스턴스마다 10초마다 돕니다. 같은 행을 같은 값으로 바꾸는 작업이라, 두 인스턴스에서 8번 동시에 돌려도 예외 없이 같은 결과인 것을 테스트로 확인했습니다.
+- 후원 확정의 행 잠금(`SELECT … FOR UPDATE`)과 유니크 제약은 DB에서 걸리므로 인스턴스가 여러 대여도 그대로 한 번만 확정됩니다([ADR-0008](docs/adr/0008-idempotent-donation-confirmation.md)).
+
+### 요청 분산과 `X-Backend-Instance` 헤더
+
+```text
+브라우저 ─▶ localhost:8000 (frontend LoadBalancer) ─▶ nginx 2대 ─/api─▶ backend Service (ClusterIP) ─▶ 백엔드 파드 2~5대
+                                                              └/media─▶ mediamtx Service ─(인증·상태 훅)─▶ backend Service
+```
+
+- `/api` 요청은 nginx가 `backend` Service로 넘기고, kube-proxy가 **연결마다** 백엔드 파드를 고릅니다. nginx에 upstream keepalive를 두지 않아 요청마다 새 연결이 열리므로 한 파드로 쏠리지 않습니다. 백엔드 2대로 확인했을 때 요청마다 연결을 따로 열면 **20:20**, 클라이언트 연결 하나를 재사용해도 **17:23**으로 두 파드에 나뉘었습니다.
+- 백엔드는 모든 응답(보안 필터의 401·403 포함)에 **`X-Backend-Instance`** 헤더로 응답한 인스턴스 이름을 싣습니다. 값은 `INSTANCE_NAME`이고, 비어 있으면(기본) 호스트 이름입니다. Kubernetes에서는 파드 이름(예: `backend-84fbdc547f-52694`), compose에서는 컨테이너 ID입니다. 상태 유지 확인 스크립트가 이 헤더로 응답한 파드를 찍습니다.
+  ```bash
+  curl -s -o /dev/null -D - http://localhost:8000/api/recordings | grep -i x-backend-instance
+  ```
+- MediaMTX의 송출·시청 허가와 상태 훅도 `backend` Service로 갑니다. 어느 파드가 받아도 DB 상태만 바꾸므로 결과가 같습니다.
+
+### 자동 스케일 (HPA)
+
+[k8s/app/backend-hpa.yaml](k8s/app/backend-hpa.yaml), `autoscaling/v2`.
+
+| 설정 | 값 | 설명 |
+| --- | --- | --- |
+| 지표 | CPU 평균 사용률 **50%** | 사용률 = 사용량 / `requests.cpu`(250m). 즉 파드 평균 약 125m를 넘으면 늘림. 필요 대수 = ceil(지금 대수 × 평균 사용률 / 50%) |
+| 범위 | `minReplicas: 2`, `maxReplicas: 5` | 한 대가 죽어도 서비스가 이어지게 2대 아래로는 줄이지 않음. 노드(8GB)에 메모리 요청 512Mi × 5대가 들어감 |
+| 줄일 때 | `scaleDown.stabilizationWindowSeconds: 60` | 최근 60초의 권장 대수 중 가장 큰 값을 씀(기본 300초보다 짧게) |
+| 늘릴 때 | 기본값 | 안정화 0초, 15초마다 +100% 또는 +4대 중 큰 쪽 |
+| 백엔드 자원 | requests CPU 250m·메모리 512Mi, limits CPU 1·메모리 1Gi | 힙은 `-XX:MaxRAMPercentage=60` |
+
+- 준비되지 않은 파드(JVM 시작·마이그레이션 중)는 readiness 프로브(`/actuator/health/readiness`, DB 포함)가 통과할 때까지 요청을 받지 않고, HPA도 그 파드의 CPU를 계산에서 뺍니다. 시작 시 CPU가 튀어도 대수가 더 늘지 않았습니다.
+- 줄어드는 파드는 `preStop` 10초 동안 Service에서 빠지는 것을 기다린 뒤, graceful shutdown으로 처리 중인 요청을 최대 20초 끝내고 내려갑니다.
+
+### 라이브 상태 정리 (ADR-0010)
+
+4단계까지는 백엔드가 시작할 때 남은 대기·방송 중을 모두 종료로 정리했습니다. 백엔드가 여러 대가 되자 HPA가 파드를 하나 늘릴 때마다 다른 인스턴스에서 진행 중인 방송이 끊기는 문제가 생겨, 시작 시 정리를 없애고 **MediaMTX와 주기 대조**로 바꿨습니다([ADR-0010](docs/adr/0010-reconcile-live-status-with-mediamtx.md)).
+
+- 각 백엔드가 10초마다 MediaMTX 제어 API(`/v3/paths/list`)에서 실제로 송출 중인 경로를 가져와 DB의 **방송 중**과 비교합니다. 방송 중이 된 지 `LIVE_PUBLISH_GRACE`(30초)가 지났는데 송출이 없으면 종료로 정리합니다. 방송 중이 된 직후 MediaMTX 목록 반영이 늦어도 바로 끊지 않기 위한 유예입니다.
+- MediaMTX에 닿지 않으면(연결 실패·오류 응답) 아무것도 종료하지 않고 경고 로그만 남깁니다.
+- **대기**는 대조하지 않고 지금처럼 대기 시간 초과(`LIVE_PENDING_TIMEOUT`, 60초)가 정리합니다.
+- 제어 API(9997)는 인증 없이 열려 있어(`authHTTPExclude`에 `action: api`) compose 내부 네트워크·클러스터 안에서만 닿게 두고 호스트에 공개하지 않습니다.
+- 개발 실행(`./gradlew bootRun`)은 `MEDIAMTX_API_URL`이 비어 있어 대조하지 않습니다.
+
 ## 환경변수
 
 ### Docker Compose (`.env`)
@@ -214,6 +329,7 @@ PUBLIC_HOST=localhost
 HTTPS_PORT=8443
 WEBRTC_PORT=8189
 LIVE_PENDING_TIMEOUT=60s
+LIVE_PUBLISH_GRACE=30s
 TOSS_CLIENT_KEY=test_gck_docs_Ovk5rk1EwkEbP0W43n07xlzm
 TOSS_SECRET_KEY=test_gsk_docs_OaPz8L5KdmQXkzRz3y47BMw6
 TOSS_API_BASE_URL=https://api.tosspayments.com
@@ -230,6 +346,7 @@ TOSS_API_BASE_URL=https://api.tosspayments.com
 | `HTTPS_PORT` | `8443` | 휴대폰 등 다른 기기가 접속할 HTTPS 포트(Caddy) |
 | `WEBRTC_PORT` | `8189` | MediaMTX WebRTC 미디어 포트(UDP·TCP 모두) |
 | `LIVE_PENDING_TIMEOUT` | `60s` | 영상이 들어오지 않은 대기를 종료로 정리할 때까지의 시간 |
+| `LIVE_PUBLISH_GRACE` | `30s` | 방송 중인데 MediaMTX에 송출이 없는 상태를 이 시간까지는 두고, 넘기면 송출 대조가 종료로 정리(5단계) |
 | `TOSS_CLIENT_KEY` | 문서용 결제위젯 테스트 클라이언트 키 | 화면의 결제위젯이 쓰는 키(`GET /api/payments/config`로 내려감). 테스트 키(`test_`)만 씁니다 |
 | `TOSS_SECRET_KEY` | 문서용 결제위젯 테스트 시크릿 키 | 백엔드가 토스 승인·조회 API를 부를 때 쓰는 키. 화면에 나가지 않습니다 |
 | `TOSS_API_BASE_URL` | `https://api.tosspayments.com` | 토스 API 주소 |
@@ -244,6 +361,9 @@ TOSS_API_BASE_URL=https://api.tosspayments.com
 | `RECORDING_STORAGE_DIR` | `./data/uploads` | 업로드 파일 보관 폴더(없으면 시작할 때 만듭니다) |
 | `RECORDING_MAX_UPLOAD_SIZE` | `500MB` | 최대 업로드 크기 |
 | `LIVE_PENDING_TIMEOUT` | `60s` | 대기 시간 초과 |
+| `LIVE_PUBLISH_GRACE` | `30s` | 송출 대조의 유예 시간 |
+| `MEDIAMTX_API_URL` | 빈 값 | MediaMTX 제어 API 주소. 비어 있으면 송출 대조를 하지 않음. compose 전체 실행과 Kubernetes는 `http://mediamtx:9997` |
+| `INSTANCE_NAME` | 빈 값 | 응답 헤더 `X-Backend-Instance`에 실을 인스턴스 이름. 비어 있으면 호스트 이름(compose는 컨테이너 ID, Kubernetes는 파드 이름) |
 | `TOSS_CLIENT_KEY` / `TOSS_SECRET_KEY` / `TOSS_API_BASE_URL` | 위와 같음 | 토스 결제위젯 테스트 키와 API 주소 |
 
 ### 프론트엔드·MediaMTX (개발 실행)
@@ -254,7 +374,56 @@ TOSS_API_BASE_URL=https://api.tosspayments.com
 | `VITE_MEDIA_PROXY_TARGET` | `http://localhost:8889` | Vite가 `/media`를 넘길 MediaMTX 주소 |
 | `MEDIAMTX_BACKEND_URL` | `http://backend:8080` | MediaMTX가 인증·훅을 보낼 백엔드 주소. 개발 실행에서는 `http://host.docker.internal:<백엔드 포트>` |
 
-전체 실행에서는 `DB_URL`, `SERVER_PORT`, `RECORDING_STORAGE_DIR`, `MEDIAMTX_BACKEND_URL`을 `docker-compose.yml`이 컨테이너 내부 값으로 고정합니다.
+전체 실행에서는 `DB_URL`, `SERVER_PORT`, `RECORDING_STORAGE_DIR`, `MEDIAMTX_BACKEND_URL`, `MEDIAMTX_API_URL`을 `docker-compose.yml`이 컨테이너 내부 값으로 고정합니다.
+
+### Kubernetes (5단계)
+
+`.env`를 읽지 않고 [k8s/app/config/app.env](k8s/app/config/app.env)(ConfigMap `app-config`)와 [k8s/app/config/secret.env](k8s/app/config/secret.env)(Secret `app-secret`)를 씁니다. 값은 compose 기본값과 같습니다. 고친 뒤 `kubectl apply -k k8s`를 다시 하면 이름에 붙은 내용 해시가 바뀌어 그 값을 쓰는 파드가 새로 뜹니다.
+
+```dotenv
+# k8s/app/config/app.env
+DB_NAME=chzzz
+DB_USERNAME=chzzz
+DB_URL=jdbc:postgresql://db:5432/chzzz
+RECORDING_STORAGE_DIR=/app/data/uploads
+RECORDING_MAX_UPLOAD_SIZE=500MB
+LIVE_PENDING_TIMEOUT=60s
+LIVE_PUBLISH_GRACE=30s
+MEDIAMTX_API_URL=http://mediamtx:9997
+TOSS_CLIENT_KEY=test_gck_docs_Ovk5rk1EwkEbP0W43n07xlzm
+TOSS_API_BASE_URL=https://api.tosspayments.com
+```
+
+```dotenv
+# k8s/app/config/secret.env (로컬 확인용 기본값. 실제 값을 쓸 때는 커밋하지 않습니다)
+DB_PASSWORD=chzzz
+TOSS_SECRET_KEY=test_gsk_docs_OaPz8L5KdmQXkzRz3y47BMw6
+```
+
+매니페스트에 직접 적은 설정값:
+
+| 항목 | 값 | 위치 |
+| --- | --- | --- |
+| 진입 포트 | `localhost:8000` (frontend LoadBalancer). compose의 3000, 이 PC에서 다른 프로그램이 쓰는 8080을 피함 | `k8s/app/frontend.yaml` |
+| WebRTC 미디어 포트 | `localhost:8190` UDP·TCP (compose의 8189와 겹치지 않게) | `k8s/app/mediamtx.yaml` |
+| HPA 범위·목표 | 2~5대, CPU 평균 50%, 줄일 때 안정화 60초 | `k8s/app/backend-hpa.yaml` |
+| 백엔드 CPU·메모리 | requests 250m·512Mi, limits 1·1Gi | `k8s/app/backend.yaml` |
+| 백엔드 종료 | `preStop` 10초, `SERVER_SHUTDOWN=graceful` + 단계별 최대 20초, `terminationGracePeriodSeconds: 45` | `k8s/app/backend.yaml` |
+| `INSTANCE_NAME` | 설정하지 않음(파드 이름이 헤더에 실림) | |
+
+### 부하·상태 유지 확인 스크립트 (k6, 5단계)
+
+[load/](load/)의 스크립트를 `grafana/k6:2.3.0` 이미지로 실행합니다(설치 불필요). 값은 `docker run`의 `-e 이름=값`으로 바꿉니다.
+
+| 스크립트 | 변수 | 기본값 | 설명 |
+| --- | --- | --- | --- |
+| `public-get.js` (부하) | `BASE_URL` | `http://host.docker.internal:8000` | 대상 주소(컨테이너 안에서 본 호스트의 `localhost:8000`) |
+| | `VUS` | `30` | 동시 가상 사용자 수 |
+| | `DURATION` | `3m` | 부하 시간(k6 형식: `30s`, `3m`) |
+| | `SLEEP` | `0.1` | 가상 사용자가 한 바퀴(공개 GET 8개)를 돈 뒤 쉬는 초 |
+| `state-check.js` (상태 유지 확인) | `BASE_URL` | `http://host.docker.internal:8000` | 대상 주소 |
+| | `DURATION` | `420` | 조회를 계속할 초(스케일 아웃 → 부하 중지 → 스케일 인까지 덮게) |
+| | `INTERVAL` | `5` | 조회 간격 초 |
 
 ## 구현 범위
 
@@ -274,7 +443,7 @@ TOSS_API_BASE_URL=https://api.tosspayments.com
 ### 구현한 것 (2단계: 라이브 방송)
 
 - **송출 화면** (`/live/new`, 헤더 "방송 시작"): 카메라·마이크 미리보기(전면은 거울처럼), 전면·후면 카메라 선택, 제목 입력(녹화방송과 같은 규칙) → **방송 시작** → "방송 중" 배지와 시청 화면 주소 → **방송 종료**. 권한 거부·카메라 없음·HTTPS 아님·송출 연결 실패는 이유와 해결 방법을 안내합니다.
-- **상태**: 대기(시작했지만 영상이 아직 오지 않음) → 방송 중 → 종료. 종료되는 경우는 송출자의 종료, 연결 끊김(탭 닫기·네트워크 끊김, MediaMTX가 알아채는 데 수십 초 걸릴 수 있음), 대기 시간 초과, 서비스 재시작(남아 있던 대기·방송 중을 시작할 때 종료로 정리)입니다.
+- **상태**: 대기(시작했지만 영상이 아직 오지 않음) → 방송 중 → 종료. 종료되는 경우는 송출자의 종료, 연결 끊김(탭 닫기·네트워크 끊김, MediaMTX가 알아채는 데 수십 초 걸릴 수 있음), 대기 시간 초과, 송출 대조(방송 중인데 MediaMTX에 송출이 없는 상태가 30초를 넘김, [라이브 상태 정리](#라이브-상태-정리-adr-0010))입니다. 4단계까지는 백엔드가 시작할 때 남은 대기·방송 중을 모두 종료로 정리했지만, 5단계에서 백엔드가 늘어날 때마다 다른 인스턴스의 방송을 끊는 문제가 있어 송출 대조로 바꿨습니다.
 - **방송 목록** (`/`의 라이브 방송 섹션): 방송 중 전부(최근 시작순)와 최근 종료 10개(최근 종료순)를 "방송 중"(빨강)·"종료" 배지와 시각으로 보여 줍니다. 5초마다 다시 불러옵니다. 대기는 보이지 않습니다.
 - **시청 화면** (`/live/:id`): 대기면 "곧 방송이 시작됩니다", 방송 중이면 WHEP으로 실시간 재생, 종료면 "방송이 종료되었습니다"와 시작·종료 시각. 3초마다 상태를 다시 불러와 바뀌면 화면도 바뀝니다. 브라우저가 소리 자동재생을 막으면 음소거로 재생하고 **소리 켜기** 버튼을 보여 줍니다. 연결 실패와 없는 방송("찾을 수 없음")도 안내합니다.
 - **영속 저장**: 라이브 방송 기록(제목, 상태, 생성·시작·종료 시각, 송출 키 해시)은 PostgreSQL에 남습니다(Flyway `V2`). 영상 자체는 저장하지 않습니다.
@@ -296,6 +465,17 @@ TOSS_API_BASE_URL=https://api.tosspayments.com
 - **결제위젯과 결과 화면**: 서버가 만든 주문의 금액으로 결제위젯을 그리고, `/donations/success`는 서버 확인 결과에 따라 "후원이 확정되었습니다"·"후원에 실패했습니다"(이유)·확인 필요를, `/donations/fail`은 "후원을 취소했습니다"·"후원에 실패했습니다"를 보여 주고 방송으로 돌아가는 링크를 둡니다. 서버와 통신이 안 되면 "다시 확인" 버튼이 나옵니다.
 - **서버 확인과 중복 방지**: [서버가 확정하는 규칙](#서버가-확정하는-규칙), [중복 적립 방지](#중복-적립-방지-adr-0008).
 - **영속 저장**: 후원과 승인 통지 기록은 Flyway `V4` 하나로 추가했습니다. 3단계까지의 데이터가 있는 DB에 `V4`만 적용되고 기존 회원·방송·댓글은 그대로 남는 것을 확인했습니다. 후원은 방송을 외래 키로 묶지 않아(녹화방송·라이브 방송 두 종류) 방송이 삭제돼도 후원 기록은 남습니다.
+
+### 구현한 것 (5단계: 여러 인스턴스와 자동 스케일)
+
+- **컨테이너 이미지**: compose와 같은 `backend`·`frontend` Dockerfile로 이미지를 만들어 Kubernetes에서도 그대로 씁니다.
+- **로컬 클러스터에서 여러 인스턴스**: Docker Desktop 내장 Kubernetes에 kustomize 명령 하나(`kubectl apply -k k8s`)로 db, mediamtx, backend(2대로 시작), frontend(nginx 2대)를 올립니다([ADR-0011](docs/adr/0011-docker-desktop-kubernetes-with-kustomize.md)). 백엔드는 readiness·liveness·startup 프로브, `preStop`과 graceful shutdown을 둡니다.
+- **자동 스케일 아웃·인**: metrics-server(v0.9.1) + HPA가 백엔드 CPU 평균 사용률 50%를 기준으로 2~5대 사이에서 늘리고 줄입니다([자동 스케일](#자동-스케일-hpa)).
+- **요청 분산**: frontend LoadBalancer(`localhost:8000`) → nginx → `backend` Service가 연결마다 파드를 고릅니다. 응답 헤더 `X-Backend-Instance`로 어느 파드가 응답했는지 보입니다([요청 분산](#요청-분산과-x-backend-instance-헤더)).
+- **공용 저장소**: 세션은 PostgreSQL(Flyway `V5`, 1~4단계 데이터가 있는 DB에 `V5`만 적용되고 기존 회원이 그대로인 것을 확인), 업로드 영상은 공유 볼륨, 방송·라이브 상태·댓글·후원은 PostgreSQL([상태를 어디에 두나](#상태를-어디에-두나)). 백엔드를 모두 재시작해도 로그인이 남습니다(compose 경로 포함).
+- **라이브 상태 정리 변경**: 시작 시 정리를 없애고 MediaMTX 송출 대조로 바꿔, 파드가 늘거나 재시작되어도 다른 인스턴스의 방송이 끊기지 않습니다([라이브 상태 정리](#라이브-상태-정리-adr-0010)).
+- **부하·상태 유지 확인 스크립트**: [load/](load/)의 k6 스크립트 두 개. 부하는 로그인 없는 공개 GET(녹화·라이브 방송 목록·상세, 댓글·후원 목록), 상태 유지 확인은 회원가입·로그인 → 방송 등록·댓글 작성 → 같은 쿠키로 로그인 상태·방송 목록·댓글을 주기적으로 조회하고 응답한 파드와 결과를 찍습니다. 하나라도 어긋나면 0이 아닌 종료 코드(99)로 끝납니다.
+- 1~4단계의 compose 실행 경로(휴대폰 HTTPS 포함)는 그대로입니다.
 
 ### API
 
@@ -331,7 +511,7 @@ TOSS_API_BASE_URL=https://api.tosspayments.com
 
 `/internal/mediamtx/{auth,available,unavailable}`은 MediaMTX만 부르는 내부 엔드포인트(송출·시청 허가, 영상 들어옴·끊김 훅)이고 바깥에는 열지 않습니다.
 
-응답의 소유자·작성자는 `{ id, nickname }`만 담습니다(소유자 없으면 `owner: null`). 상태를 바꾸는 요청은 모두 `X-XSRF-TOKEN` 헤더가 필요합니다. 오류는 [RFC 9457 Problem Details](https://www.rfc-editor.org/rfc/rfc9457) 형식입니다. 입력 검증 실패(`400`)는 `errors` 배열에 `{ field, message }`를 담습니다. 업로드 크기를 넘으면 `413`입니다.
+모든 백엔드 응답에는 응답한 인스턴스 이름이 `X-Backend-Instance` 헤더로 실립니다(5단계). 응답의 소유자·작성자는 `{ id, nickname }`만 담습니다(소유자 없으면 `owner: null`). 상태를 바꾸는 요청은 모두 `X-XSRF-TOKEN` 헤더가 필요합니다. 오류는 [RFC 9457 Problem Details](https://www.rfc-editor.org/rfc/rfc9457) 형식입니다. 입력 검증 실패(`400`)는 `errors` 배열에 `{ field, message }`를 담습니다. 업로드 크기를 넘으면 `413`입니다.
 
 ### 구현하지 않은 것
 
@@ -348,7 +528,7 @@ TOSS_API_BASE_URL=https://api.tosspayments.com
 - 라이브 방송 검색·페이지네이션, 종료된 라이브 방송의 송출 재개(다시 방송하려면 새로 시작합니다)
 - 이메일 인증, 비밀번호 찾기·변경, 회원 정보 수정, 회원 탈퇴, 소셜 로그인
 - 관리자 역할, 방송 소유자의 댓글 관리(남의 댓글 삭제), 소유자 없는 기존 방송에 소유자 지정
-- 로그인 시도 횟수 제한·계정 잠금, 재시작 후에도 로그인 유지(세션 공유·저장)
+- 로그인 시도 횟수 제한·계정 잠금
 - 실시간 채팅(웹소켓), 댓글 답글·좋아요·신고·페이지네이션, "내 방송" 모아 보기
 - 후원 메시지, 익명 후원, 후원 알림(방송 화면 위 효과)
 - 환불·결제 취소(확정된 후원 되돌리기), 확인 필요 상태의 자동 처리(사람이 DB와 토스 기록을 보고 판단)
@@ -357,6 +537,14 @@ TOSS_API_BASE_URL=https://api.tosspayments.com
 - 결제 대기 주문의 만료·정리 작업(결제하지 않은 주문은 결제 대기로 남고 합계에 들어가지 않습니다)
 - 실제(운영) 결제 키, 결제 서비스 가맹 심사
 - 토스 웹훅을 로컬로 받기 위한 공개 주소(터널), 웹훅 서명 검증(본문 대신 조회 API로 재확인합니다. ADR-0008)
+- 5단계 범위 밖:
+  - 클라우드 배포, 여러 노드 클러스터, 인그레스 컨트롤러, Kubernetes 경로의 HTTPS(TLS)
+  - Kubernetes 경로의 휴대폰 접속·송출(휴대폰은 compose 경로에서 확인)
+  - PostgreSQL·MediaMTX의 이중화·자동 스케일(각 1대), 프론트(nginx) 자동 스케일(2대 고정)
+  - 요청 수·지연 시간 같은 사용자 지정 지표 기반 스케일(Prometheus 어댑터 등), 직접 만든 스케일러
+  - 업로드 저장소를 `ReadWriteMany` 스토리지·오브젝트 스토리지로 바꾸기(노드 1대라 공유 볼륨으로 충분)
+  - 분산 락(ShedLock 등)으로 주기 작업을 한 인스턴스에서만 돌리기(같은 값으로 바꾸는 작업이라 모든 인스턴스가 돌림)
+  - 무중단 롤링 업데이트 전략 튜닝, 부하 테스트의 성능 목표(응답 시간 SLA)
 - E2E 자동화 테스트(대신 아래 직접 확인 절차)
 
 ## 직접 확인 절차
@@ -395,13 +583,15 @@ docker compose up --build
 9. **목록·시청 (PC)**: http://localhost:3000 의 라이브 방송 섹션에 그 방송이 **방송 중** 배지와 함께 보입니다. 눌러서 시청 화면으로 들어가 휴대폰 영상과 소리가 나오면 통과입니다(**소리 켜기**가 보이면 누릅니다). 확인 때 지연은 체감상 거의 없었습니다.
 10. **송출 종료 (휴대폰 → PC)**: 휴대폰에서 **방송 종료**를 누릅니다(소유자는 다른 기기의 시청 화면에서도 종료할 수 있습니다. 아래 15). 휴대폰에 "방송이 종료되었습니다"가 보이고 카메라가 꺼집니다. 몇 초 안에 PC 시청 화면이 "방송이 종료되었습니다"와 시작·종료 시각으로 바뀌고, 목록에서 **종료** 배지로 보이면 통과입니다.
 11. **연결 끊김 자동 종료**: 새 방송을 시작하고 **방송 중**이 되면 종료 버튼을 누르지 않고 휴대폰 Chrome 탭을 닫습니다. PC 재생이 멈추고, 약 30초 안에(MediaMTX가 끊김을 알아채는 시간) 시청 화면과 목록이 종료로 바뀌면 통과입니다.
-12. **재시작 후 유지·정리**: 휴대폰에서 방송을 시작해 둔 채(또는 시작 직후) 서비스를 멈췄다가 다시 띄웁니다(`-v` 없이). 녹화방송 두 개와 라이브 방송 기록이 그대로 있고, 녹화방송은 상세 화면에서 재생되며, 남아 있던 대기·방송 중은 **종료**로 정리되어 있으면 통과입니다.
+12. **재시작 후 유지·정리**: 휴대폰에서 방송을 시작해 둔 채(또는 시작 직후) 서비스를 멈췄다가 다시 띄웁니다(`-v` 없이). 녹화방송 두 개와 라이브 방송 기록이 그대로 있고, 녹화방송은 상세 화면에서 재생되며, 남아 있던 대기·방송 중이 **종료**로 정리되면 통과입니다.
     ```bash
     docker compose down
     ```
     ```bash
     docker compose up
     ```
+    - 5단계부터는 시작할 때 한꺼번에 정리하지 않습니다. 대기는 대기 시간 초과(60초)로, 방송 중은 다시 뜬 MediaMTX에 송출이 없으므로 송출 대조(유예 30초, 10초마다)로 종료됩니다. 그래서 다시 띄운 직후에는 잠깐 남아 있다가 1분 안쪽에 종료로 바뀝니다.
+    - 확인한 날짜: 2026-11-10에 4단계까지의 방식(시작할 때 정리)으로 이 절차를 통과했습니다. 5단계(2026-11-18)에서는 PC 브라우저 송출로 **백엔드만** 재시작해 방송 중이 70초 넘게 유지되는 것, 백엔드를 멈춘 채 송출 탭을 닫고 다시 띄우면 10초 뒤 대조가 종료로 정리하는 것, 백엔드가 떠 있을 때 탭을 닫으면 끊김 통지로 1초 안에 종료되는 것, MediaMTX를 멈추면 경고만 남기고 아무것도 종료하지 않는 것을 확인했습니다. `docker compose down`/`up`으로 전체를 다시 띄우는 이 절차 자체는 5단계 방식으로 다시 해 보지 않았습니다.
 
 ### 회원·권한·댓글 (3단계, 세 역할)
 
@@ -488,6 +678,322 @@ docker compose up --build
 
 **1~3단계 유지**: 같은 날 같은 실행에서 외부 URL 녹화방송 등록·재생, 소유자 버튼 표시, 라이브 방송 시청 화면(대기), 댓글 작성을 PC 브라우저로 다시 확인했습니다. 휴대폰 송출·시청은 4단계에서 송출·재생 코드가 바뀌지 않아(시청 화면에는 후원 영역만 붙음) 2·3단계 확인(2026-11-10)으로 갈음했습니다.
 
+### 스케일 아웃/인과 상태 유지 (5단계, Kubernetes)
+
+[Kubernetes 실행](#kubernetes-실행-5단계-자동-스케일)의 1~5를 마친 상태에서 합니다. 2026-11-18에 이 PC(Docker Desktop Kubernetes, 단일 노드 12 CPU·8GB)에서 확인했습니다. 아래 출력의 시각은 UTC입니다.
+
+#### 백엔드 2대에서 요청 분산과 상태 공유
+
+`X-Backend-Instance` 헤더로 응답한 파드를 구분해 확인했습니다.
+
+30. **분산**: 요청마다 연결을 새로 열면 두 파드가 20:20, 연결 하나를 재사용해도 17:23으로 나눠 응답했습니다.
+31. **로그인**: 로그인한 쿠키로 `/api/auth/me`를 10번 부르면 두 파드가 나눠 응답하고 모두 `200`이었습니다. 한 파드에서 로그아웃하면 두 파드 모두 `401`이었습니다.
+32. **업로드 영상**: 한 파드로 올린 영상을 다른 파드가 Range 요청에 `206`으로 응답했습니다.
+33. **댓글**: 다른 파드에서 써도 CSRF 확인을 통과했고, 두 파드 모두 같은 목록(3개)을 돌려줬습니다. 비로그인 작성은 `403`이었습니다.
+34. **라이브**: PC 브라우저에서 송출·시청·종료가 되고, 미디어는 LoadBalancer(`localhost:8190`)를 거쳐 UDP로 연결되었습니다. PC에 카메라가 없어 캔버스 영상과 오실레이터 소리로 송출했습니다.
+35. **파드 하나 삭제**: `kubectl -n chzzz delete pod <백엔드 파드>` 뒤 75초 동안 73번 조회가 모두 `200`이었고 로그인 상태와 방송 목록이 그대로였습니다. 새 파드는 약 30초 뒤부터 응답했습니다.
+
+#### 스케일 아웃 → 스케일 인
+
+터미널 세 개를 씁니다. 모두 저장소 루트에서 실행합니다(PowerShell·bash 같음).
+
+36. **HPA 지켜보기** (터미널 1): `REPLICAS`가 2, `TARGETS`가 낮은 값(`cpu: 2%/50%` 등)이면 준비된 것입니다.
+    ```bash
+    kubectl -n chzzz get hpa backend -w
+    ```
+37. **상태 유지 확인 시작** (터미널 2): 회원가입·로그인·방송 등록·댓글 작성 뒤 5초마다 로그인 상태(`/api/auth/me`), 방송 목록, 댓글 목록을 조회해 응답한 파드와 결과를 한 줄씩 찍습니다. 확인 때는 스케일 인까지 덮으려고 `DURATION=540`(9분)으로 돌렸습니다.
+    ```bash
+    docker run --rm -i -v "${PWD}/load:/load" -e DURATION=540 grafana/k6:2.3.0 run -q --log-format=raw /load/state-check.js
+    ```
+38. **부하 걸기** (터미널 3, 상태 확인을 시작하고 30초쯤 뒤): 가상 사용자 30명이 3분 동안 공개 GET을 계속 보냅니다.
+    ```bash
+    docker run --rm -i -v "${PWD}/load:/load" -e VUS=30 -e DURATION=3m grafana/k6:2.3.0 run /load/public-get.js
+    ```
+39. **중간중간 대수와 CPU 보기**:
+    ```bash
+    kubectl -n chzzz get hpa,pods
+    ```
+    ```bash
+    kubectl -n chzzz top pods -l app=backend
+    ```
+40. **통과 기준**: 부하 중에 `REPLICAS`가 2보다 커지고(5를 넘지 않음), 부하가 끝나고 1~2분 뒤 다시 2로 줄어듭니다. 그동안 상태 유지 확인의 모든 줄이 `OK`이고 마지막에 `checks_succeeded 100%`, 종료 코드 0이면 통과입니다.
+
+**확인한 인스턴스 수 변화**: **2대 → 5대 → 2대**
+
+| 시각 (UTC) | 일 |
+| --- | --- |
+| 08:03:15 | 상태 유지 확인 시작 (백엔드 2대, CPU 2%) |
+| 08:03:44 | 부하 시작 (VUS 30, 3분) |
+| 08:04:06 | **5대로 한 번에 늘어남** (기본 스케일 업 정책: 15초마다 +100% 또는 +4대 중 큰 값, 최대 5에서 멈춤). 새 파드는 40~55초 준비 중(0/1)이었다가 Ready |
+| 08:06:47 | 부하 끝 (k6 종료 코드 0) |
+| 08:08:06 | **2대로 줄어듦** (부하가 끝나고 약 80초 = 지표 지연 + 안정화 60초) |
+| 08:12:33 | 상태 유지 확인 끝 (종료 코드 0) |
+
+- 부하: 요청 86,650개(초당 약 481개), 실패 0%, 응답 시간 p95 411ms.
+- 상태 유지 확인: 체크 **315/315** 성공. 응답한 백엔드 파드 5개 모두에서 로그인이 유지되고 방송 목록·댓글이 같았습니다. 스케일 아웃 중(08:07:47)에 쓴 댓글 2는 `cmct5` 파드가 받았고, 그 뒤 `52694`·`fxwmq`·`jflrt` 파드도 댓글 2개를 보여 줬습니다. 그 사이 늘어났다 사라진 파드 3개(`cmct5`·`fxwmq`·`vszs6`) 때문에 실패한 요청은 없었습니다.
+- 조정: 첫 실행에서 바로 5대까지 늘고 2대로 돌아와 CPU requests(250m)·부하 세기·프로브를 바꾸지 않았습니다.
+- 부하가 끝난 뒤 08:11:50~08:13 사이 부하 없이 평균 CPU가 잠깐 53%까지 올랐습니다(파드당 107m·161m). HPA 허용 오차(10%) 안이라 늘지 않았고 그 뒤 3분 동안 2~26%로 안정되었습니다. 세션 테이블은 4행, 오류 로그는 없어 JVM 내부 작업(GC·JIT)의 일시 사용으로 보고 조치하지 않았습니다.
+
+실제 출력은 아래와 같습니다(확인 때 기록한 그대로).
+
+**부하 전**
+
+```
+## 08:03:12 UTC  kubectl -n chzzz get hpa,pods
+NAME                                          REFERENCE            TARGETS       MINPODS   MAXPODS   REPLICAS   AGE
+horizontalpodautoscaler.autoscaling/backend   Deployment/backend   cpu: 2%/50%   2         5         2          3m45s
+
+NAME                            READY   STATUS    RESTARTS   AGE
+pod/backend-84fbdc547f-52694    1/1     Running   0          35m
+pod/backend-84fbdc547f-jflrt    1/1     Running   0          31m
+pod/db-786d8ff659-8mx46         1/1     Running   0          35m
+pod/frontend-66747978cc-bldk8   1/1     Running   0          35m
+pod/frontend-66747978cc-dh7rc   1/1     Running   0          35m
+pod/mediamtx-567f9b69d5-gnvrw   1/1     Running   0          35m
+## 08:03:13 UTC  kubectl -n chzzz top pods -l app=backend
+NAME                       CPU(cores)   MEMORY(bytes)   
+backend-84fbdc547f-52694   6m           375Mi           
+backend-84fbdc547f-jflrt   3m           361Mi           
+```
+
+**부하 중 (부하 시작 2분 뒤)**
+
+```
+## 08:05:45 UTC  kubectl -n chzzz get hpa,pods
+NAME                                          REFERENCE            TARGETS         MINPODS   MAXPODS   REPLICAS   AGE
+horizontalpodautoscaler.autoscaling/backend   Deployment/backend   cpu: 204%/50%   2         5         5          6m18s
+
+NAME                            READY   STATUS    RESTARTS   AGE
+pod/backend-84fbdc547f-52694    1/1     Running   0          38m
+pod/backend-84fbdc547f-cmct5    1/1     Running   0          107s
+pod/backend-84fbdc547f-fxwmq    1/1     Running   0          106s
+pod/backend-84fbdc547f-jflrt    1/1     Running   0          34m
+pod/backend-84fbdc547f-vszs6    1/1     Running   0          106s
+pod/db-786d8ff659-8mx46         1/1     Running   0          38m
+pod/frontend-66747978cc-bldk8   1/1     Running   0          38m
+pod/frontend-66747978cc-dh7rc   1/1     Running   0          38m
+pod/mediamtx-567f9b69d5-gnvrw   1/1     Running   0          38m
+## kubectl -n chzzz top pods -l app=backend
+NAME                       CPU(cores)   MEMORY(bytes)   
+backend-84fbdc547f-52694   242m         436Mi           
+backend-84fbdc547f-cmct5   598m         384Mi           
+backend-84fbdc547f-fxwmq   714m         391Mi           
+backend-84fbdc547f-jflrt   236m         421Mi           
+backend-84fbdc547f-vszs6   764m         388Mi           
+```
+
+**부하 끝난 직후**
+
+```
+## 08:06:47 UTC  kubectl -n chzzz get hpa,pods
+NAME                                          REFERENCE            TARGETS         MINPODS   MAXPODS   REPLICAS   AGE
+horizontalpodautoscaler.autoscaling/backend   Deployment/backend   cpu: 120%/50%   2         5         5          7m20s
+
+NAME                            READY   STATUS    RESTARTS   AGE
+pod/backend-84fbdc547f-52694    1/1     Running   0          39m
+pod/backend-84fbdc547f-cmct5    1/1     Running   0          2m49s
+pod/backend-84fbdc547f-fxwmq    1/1     Running   0          2m48s
+pod/backend-84fbdc547f-jflrt    1/1     Running   0          35m
+pod/backend-84fbdc547f-vszs6    1/1     Running   0          2m48s
+pod/db-786d8ff659-8mx46         1/1     Running   0          39m
+pod/frontend-66747978cc-bldk8   1/1     Running   0          39m
+pod/frontend-66747978cc-dh7rc   1/1     Running   0          39m
+pod/mediamtx-567f9b69d5-gnvrw   1/1     Running   0          39m
+## 08:06:48 UTC  kubectl -n chzzz top pods -l app=backend
+NAME                       CPU(cores)   MEMORY(bytes)   
+backend-84fbdc547f-52694   261m         436Mi           
+backend-84fbdc547f-cmct5   300m         393Mi           
+backend-84fbdc547f-fxwmq   366m         400Mi           
+backend-84fbdc547f-jflrt   235m         422Mi           
+backend-84fbdc547f-vszs6   340m         414Mi           
+```
+
+**부하 중지 후 (상태 유지 확인 끝난 시점)**
+
+```
+## 08:12:35 UTC  kubectl -n chzzz get hpa,pods
+NAME                                          REFERENCE            TARGETS        MINPODS   MAXPODS   REPLICAS   AGE
+horizontalpodautoscaler.autoscaling/backend   Deployment/backend   cpu: 30%/50%   2         5         2          13m
+
+NAME                            READY   STATUS    RESTARTS   AGE
+pod/backend-84fbdc547f-52694    1/1     Running   0          44m
+pod/backend-84fbdc547f-jflrt    1/1     Running   0          40m
+pod/db-786d8ff659-8mx46         1/1     Running   0          44m
+pod/frontend-66747978cc-bldk8   1/1     Running   0          44m
+pod/frontend-66747978cc-dh7rc   1/1     Running   0          44m
+pod/mediamtx-567f9b69d5-gnvrw   1/1     Running   0          44m
+## 08:12:36 UTC  kubectl -n chzzz top pods -l app=backend
+NAME                       CPU(cores)   MEMORY(bytes)   
+backend-84fbdc547f-52694   103m         432Mi           
+backend-84fbdc547f-jflrt   48m          419Mi           
+```
+
+<details>
+<summary><code>kubectl -n chzzz get hpa backend -w</code> (08:03:12 UTC 시작, 약 15초 간격)</summary>
+
+```
+NAME      REFERENCE            TARGETS       MINPODS   MAXPODS   REPLICAS   AGE
+backend   Deployment/backend   cpu: 2%/50%   2         5         2          3m45s
+backend   Deployment/backend   cpu: 1%/50%   2         5         2          3m46s
+backend   Deployment/backend   cpu: 3%/50%   2         5         2          4m1s
+backend   Deployment/backend   cpu: 5%/50%   2         5         2          4m16s
+backend   Deployment/backend   cpu: 106%/50%   2         5         2          4m31s
+backend   Deployment/backend   cpu: 365%/50%   2         5         5          4m46s
+backend   Deployment/backend   cpu: 399%/50%   2         5         5          5m1s
+backend   Deployment/backend   cpu: 391%/50%   2         5         5          5m17s
+backend   Deployment/backend   cpu: 391%/50%   2         5         5          5m32s
+backend   Deployment/backend   cpu: 263%/50%   2         5         5          5m47s
+backend   Deployment/backend   cpu: 298%/50%   2         5         5          6m2s
+backend   Deployment/backend   cpu: 204%/50%   2         5         5          6m17s
+backend   Deployment/backend   cpu: 223%/50%   2         5         5          6m32s
+backend   Deployment/backend   cpu: 180%/50%   2         5         5          6m47s
+backend   Deployment/backend   cpu: 178%/50%   2         5         5          7m2s
+backend   Deployment/backend   cpu: 120%/50%   2         5         5          7m17s
+backend   Deployment/backend   cpu: 117%/50%   2         5         5          7m32s
+backend   Deployment/backend   cpu: 19%/50%    2         5         5          7m47s
+backend   Deployment/backend   cpu: 1%/50%     2         5         5          8m2s
+backend   Deployment/backend   cpu: 2%/50%     2         5         5          8m17s
+backend   Deployment/backend   cpu: 7%/50%     2         5         5          8m32s
+backend   Deployment/backend   cpu: 3%/50%     2         5         2          8m47s
+backend   Deployment/backend   cpu: 3%/50%     2         5         2          9m17s
+backend   Deployment/backend   cpu: 2%/50%     2         5         2          9m32s
+backend   Deployment/backend   cpu: 4%/50%     2         5         2          9m47s
+backend   Deployment/backend   cpu: 2%/50%     2         5         2          10m
+backend   Deployment/backend   cpu: 1%/50%     2         5         2          11m
+backend   Deployment/backend   cpu: 3%/50%     2         5         2          11m
+backend   Deployment/backend   cpu: 4%/50%     2         5         2          12m
+backend   Deployment/backend   cpu: 16%/50%    2         5         2          12m
+backend   Deployment/backend   cpu: 23%/50%    2         5         2          12m
+backend   Deployment/backend   cpu: 24%/50%    2         5         2          12m
+backend   Deployment/backend   cpu: 30%/50%    2         5         2          13m
+backend   Deployment/backend   cpu: 39%/50%    2         5         2          13m
+```
+
+</details>
+
+<details>
+<summary>상태 유지 확인 출력 (같은 시간대)</summary>
+
+```
+08:03:15 OK   회원가입 sc_mwlu3oog175: 201 @ backend-84fbdc547f-52694
+08:03:15 OK   로그인: 200 @ backend-84fbdc547f-52694
+08:03:15 OK   방송 등록: 201 @ backend-84fbdc547f-jflrt
+08:03:15 OK   댓글 1 작성 (방송 4): 201 @ backend-84fbdc547f-jflrt
+시각     | me 파드 / 결과 | 목록 파드 / 결과 | 댓글 파드 / 결과
+08:03:15 | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-52694 OK | backend-84fbdc547f-52694 OK 댓글 1개
+08:03:20 | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-jflrt OK 댓글 1개
+08:03:25 | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-jflrt OK 댓글 1개
+08:03:30 | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-52694 OK 댓글 1개
+08:03:35 | backend-84fbdc547f-52694 OK | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-52694 OK 댓글 1개
+08:03:40 | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-jflrt OK 댓글 1개
+08:03:45 | backend-84fbdc547f-52694 OK | backend-84fbdc547f-52694 OK | backend-84fbdc547f-52694 OK 댓글 1개
+08:03:54 | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-52694 OK 댓글 1개
+08:03:59 | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-52694 OK | backend-84fbdc547f-52694 OK 댓글 1개
+08:04:05 | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-52694 OK 댓글 1개
+08:04:10 | backend-84fbdc547f-52694 OK | backend-84fbdc547f-52694 OK | backend-84fbdc547f-52694 OK 댓글 1개
+08:04:16 | backend-84fbdc547f-52694 OK | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-jflrt OK 댓글 1개
+08:04:22 | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-52694 OK | backend-84fbdc547f-52694 OK 댓글 1개
+08:04:29 | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-52694 OK 댓글 1개
+08:04:35 | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-jflrt OK 댓글 1개
+08:04:40 | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-52694 OK | backend-84fbdc547f-jflrt OK 댓글 1개
+08:04:45 | backend-84fbdc547f-52694 OK | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-52694 OK 댓글 1개
+08:04:52 | backend-84fbdc547f-cmct5 OK | backend-84fbdc547f-fxwmq OK | backend-84fbdc547f-52694 OK 댓글 1개
+08:04:57 | backend-84fbdc547f-fxwmq OK | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-jflrt OK 댓글 1개
+08:05:03 | backend-84fbdc547f-52694 OK | backend-84fbdc547f-fxwmq OK | backend-84fbdc547f-jflrt OK 댓글 1개
+08:05:08 | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-vszs6 OK | backend-84fbdc547f-jflrt OK 댓글 1개
+08:05:14 | backend-84fbdc547f-vszs6 OK | backend-84fbdc547f-fxwmq OK | backend-84fbdc547f-cmct5 OK 댓글 1개
+08:05:19 | backend-84fbdc547f-52694 OK | backend-84fbdc547f-cmct5 OK | backend-84fbdc547f-52694 OK 댓글 1개
+08:05:26 | backend-84fbdc547f-52694 OK | backend-84fbdc547f-cmct5 OK | backend-84fbdc547f-52694 OK 댓글 1개
+08:05:31 | backend-84fbdc547f-fxwmq OK | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-52694 OK 댓글 1개
+08:05:38 | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-fxwmq OK 댓글 1개
+08:05:43 | backend-84fbdc547f-vszs6 OK | backend-84fbdc547f-fxwmq OK | backend-84fbdc547f-fxwmq OK 댓글 1개
+08:05:49 | backend-84fbdc547f-vszs6 OK | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-jflrt OK 댓글 1개
+08:05:54 | backend-84fbdc547f-cmct5 OK | backend-84fbdc547f-fxwmq OK | backend-84fbdc547f-fxwmq OK 댓글 1개
+08:06:00 | backend-84fbdc547f-52694 OK | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-fxwmq OK 댓글 1개
+08:06:05 | backend-84fbdc547f-52694 OK | backend-84fbdc547f-52694 OK | backend-84fbdc547f-jflrt OK 댓글 1개
+08:06:10 | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-52694 OK | backend-84fbdc547f-52694 OK 댓글 1개
+08:06:15 | backend-84fbdc547f-cmct5 OK | backend-84fbdc547f-cmct5 OK | backend-84fbdc547f-52694 OK 댓글 1개
+08:06:21 | backend-84fbdc547f-52694 OK | backend-84fbdc547f-vszs6 OK | backend-84fbdc547f-vszs6 OK 댓글 1개
+08:06:26 | backend-84fbdc547f-vszs6 OK | backend-84fbdc547f-vszs6 OK | backend-84fbdc547f-vszs6 OK 댓글 1개
+08:06:31 | backend-84fbdc547f-52694 OK | backend-84fbdc547f-cmct5 OK | backend-84fbdc547f-52694 OK 댓글 1개
+08:06:36 | backend-84fbdc547f-fxwmq OK | backend-84fbdc547f-fxwmq OK | backend-84fbdc547f-vszs6 OK 댓글 1개
+08:06:41 | backend-84fbdc547f-vszs6 OK | backend-84fbdc547f-cmct5 OK | backend-84fbdc547f-fxwmq OK 댓글 1개
+08:06:46 | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-cmct5 OK | backend-84fbdc547f-52694 OK 댓글 1개
+08:06:51 | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-fxwmq OK | backend-84fbdc547f-fxwmq OK 댓글 1개
+08:06:56 | backend-84fbdc547f-fxwmq OK | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-fxwmq OK 댓글 1개
+08:07:01 | backend-84fbdc547f-cmct5 OK | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-52694 OK 댓글 1개
+08:07:07 | backend-84fbdc547f-vszs6 OK | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-cmct5 OK 댓글 1개
+08:07:12 | backend-84fbdc547f-52694 OK | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-cmct5 OK 댓글 1개
+08:07:17 | backend-84fbdc547f-52694 OK | backend-84fbdc547f-cmct5 OK | backend-84fbdc547f-cmct5 OK 댓글 1개
+08:07:22 | backend-84fbdc547f-fxwmq OK | backend-84fbdc547f-52694 OK | backend-84fbdc547f-jflrt OK 댓글 1개
+08:07:27 | backend-84fbdc547f-cmct5 OK | backend-84fbdc547f-fxwmq OK | backend-84fbdc547f-vszs6 OK 댓글 1개
+08:07:32 | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-jflrt OK 댓글 1개
+08:07:37 | backend-84fbdc547f-cmct5 OK | backend-84fbdc547f-fxwmq OK | backend-84fbdc547f-fxwmq OK 댓글 1개
+08:07:42 | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-52694 OK | backend-84fbdc547f-fxwmq OK 댓글 1개
+08:07:47 OK   댓글 2 작성: 201 @ backend-84fbdc547f-cmct5
+08:07:48 | backend-84fbdc547f-vszs6 OK | backend-84fbdc547f-52694 OK | backend-84fbdc547f-jflrt OK 댓글 2개
+08:07:53 | backend-84fbdc547f-52694 OK | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-fxwmq OK 댓글 2개
+08:07:58 | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-fxwmq OK | backend-84fbdc547f-cmct5 OK 댓글 2개
+08:08:03 | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-52694 OK | backend-84fbdc547f-52694 OK 댓글 2개
+08:08:08 | backend-84fbdc547f-52694 OK | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-52694 OK 댓글 2개
+08:08:13 | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-52694 OK | backend-84fbdc547f-jflrt OK 댓글 2개
+08:08:18 | backend-84fbdc547f-52694 OK | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-52694 OK 댓글 2개
+08:08:23 | backend-84fbdc547f-52694 OK | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-jflrt OK 댓글 2개
+08:08:28 | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-52694 OK 댓글 2개
+08:08:33 | backend-84fbdc547f-52694 OK | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-jflrt OK 댓글 2개
+08:08:38 | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-52694 OK | backend-84fbdc547f-jflrt OK 댓글 2개
+08:08:43 | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-jflrt OK 댓글 2개
+08:08:48 | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-52694 OK | backend-84fbdc547f-52694 OK 댓글 2개
+08:08:53 | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-52694 OK | backend-84fbdc547f-52694 OK 댓글 2개
+08:08:58 | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-52694 OK 댓글 2개
+08:09:03 | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-52694 OK | backend-84fbdc547f-jflrt OK 댓글 2개
+08:09:08 | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-52694 OK | backend-84fbdc547f-52694 OK 댓글 2개
+08:09:13 | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-jflrt OK 댓글 2개
+08:09:18 | backend-84fbdc547f-52694 OK | backend-84fbdc547f-52694 OK | backend-84fbdc547f-52694 OK 댓글 2개
+08:09:23 | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-52694 OK 댓글 2개
+08:09:28 | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-52694 OK 댓글 2개
+08:09:33 | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-jflrt OK 댓글 2개
+08:09:38 | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-jflrt OK 댓글 2개
+08:09:43 | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-52694 OK | backend-84fbdc547f-52694 OK 댓글 2개
+08:09:48 | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-52694 OK | backend-84fbdc547f-jflrt OK 댓글 2개
+08:09:53 | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-52694 OK | backend-84fbdc547f-jflrt OK 댓글 2개
+08:09:59 | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-jflrt OK 댓글 2개
+08:10:04 | backend-84fbdc547f-52694 OK | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-jflrt OK 댓글 2개
+08:10:09 | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-52694 OK | backend-84fbdc547f-52694 OK 댓글 2개
+08:10:14 | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-52694 OK | backend-84fbdc547f-52694 OK 댓글 2개
+08:10:19 | backend-84fbdc547f-52694 OK | backend-84fbdc547f-52694 OK | backend-84fbdc547f-52694 OK 댓글 2개
+08:10:24 | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-jflrt OK 댓글 2개
+08:10:29 | backend-84fbdc547f-52694 OK | backend-84fbdc547f-52694 OK | backend-84fbdc547f-jflrt OK 댓글 2개
+08:10:34 | backend-84fbdc547f-52694 OK | backend-84fbdc547f-52694 OK | backend-84fbdc547f-jflrt OK 댓글 2개
+08:10:39 | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-52694 OK | backend-84fbdc547f-52694 OK 댓글 2개
+08:10:44 | backend-84fbdc547f-52694 OK | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-52694 OK 댓글 2개
+08:10:49 | backend-84fbdc547f-52694 OK | backend-84fbdc547f-52694 OK | backend-84fbdc547f-jflrt OK 댓글 2개
+08:10:54 | backend-84fbdc547f-52694 OK | backend-84fbdc547f-52694 OK | backend-84fbdc547f-jflrt OK 댓글 2개
+08:10:59 | backend-84fbdc547f-52694 OK | backend-84fbdc547f-52694 OK | backend-84fbdc547f-jflrt OK 댓글 2개
+08:11:04 | backend-84fbdc547f-52694 OK | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-52694 OK 댓글 2개
+08:11:09 | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-jflrt OK 댓글 2개
+08:11:15 | backend-84fbdc547f-52694 OK | backend-84fbdc547f-52694 OK | backend-84fbdc547f-52694 OK 댓글 2개
+08:11:20 | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-jflrt OK 댓글 2개
+08:11:25 | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-52694 OK | backend-84fbdc547f-52694 OK 댓글 2개
+08:11:30 | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-jflrt OK 댓글 2개
+08:11:36 | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-52694 OK | backend-84fbdc547f-jflrt OK 댓글 2개
+08:11:41 | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-52694 OK | backend-84fbdc547f-52694 OK 댓글 2개
+08:11:47 | backend-84fbdc547f-52694 OK | backend-84fbdc547f-52694 OK | backend-84fbdc547f-52694 OK 댓글 2개
+08:11:52 | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-52694 OK | backend-84fbdc547f-52694 OK 댓글 2개
+08:11:57 | backend-84fbdc547f-52694 OK | backend-84fbdc547f-52694 OK | backend-84fbdc547f-jflrt OK 댓글 2개
+08:12:03 | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-jflrt OK 댓글 2개
+08:12:08 | backend-84fbdc547f-52694 OK | backend-84fbdc547f-52694 OK | backend-84fbdc547f-52694 OK 댓글 2개
+08:12:14 | backend-84fbdc547f-52694 OK | backend-84fbdc547f-jflrt OK | backend-84fbdc547f-52694 OK 댓글 2개
+응답한 파드 5개: backend-84fbdc547f-52694, backend-84fbdc547f-cmct5, backend-84fbdc547f-fxwmq, backend-84fbdc547f-jflrt, backend-84fbdc547f-vszs6
+댓글 2 작성 파드: backend-84fbdc547f-cmct5, 그 뒤 댓글 2를 보여 준 다른 파드: backend-84fbdc547f-52694, backend-84fbdc547f-fxwmq, backend-84fbdc547f-jflrt
+  █ THRESHOLDS 
+    checks
+    ✓ 'rate==1' rate=100.00%
+    checks_succeeded...: 100.00% 315 out of 315
+```
+
+</details>
+
 화면 예시는 [docs/screenshots/stage-1](docs/screenshots/stage-1), [docs/screenshots/stage-2](docs/screenshots/stage-2), [docs/screenshots/stage-3](docs/screenshots/stage-3), [docs/screenshots/stage-4](docs/screenshots/stage-4)에 있습니다.
 
 ## 테스트
@@ -505,10 +1011,12 @@ cd frontend && npm test
 - 후원: 토스 결제 서비스는 테스트에서 가짜(`FakePaymentGateway`)로 바꿔 끼워 승인·조회의 성공·거절·통신 실패·"이미 처리된 결제"를 만들고, 승인 호출 횟수로 "다시 부르지 않음"을 확인합니다. 동시 확인 요청은 두 스레드로 같은 주문을 확인해 한 건만 확정되는지 봅니다. 실제 토스 연동 코드(`TossPaymentGateway`)는 PC에 띄운 가짜 HTTP 서버로 요청 모양(Basic 인증, 본문)과 응답 해석을 확인합니다. 프론트는 결제위젯 어댑터를 가짜로 바꿉니다.
 - 백엔드: Spring Boot 앱 전체를 띄우고 REST API로만 검증합니다. 로그인은 테스트도 실제 회원가입·로그인 API로 받은 세션을 쓰고, 상태를 바꾸는 API마다 비로그인·소유자(작성자)·다른 회원 세 경우를 확인합니다. 쿠키 속성·CSRF 흐름은 실제 서버에 브라우저처럼 요청해 확인합니다. DB는 Testcontainers로 실제 PostgreSQL을 띄우므로 **Docker가 실행 중이어야** 합니다. MediaMTX의 인증·훅 요청은 테스트가 내부 엔드포인트를 직접 불러 흉내 내고, 시간(대기 시간 초과)은 테스트용 시계로 바꿔 끼웁니다.
 - 프론트엔드: Vitest + React Testing Library로 라우터를 포함한 앱 전체를 렌더링하고, 네트워크 경계(`fetch`)와 미디어 어댑터(카메라·WebRTC)만 가짜로 바꿉니다. 로그인 상태도 스텁한 `/api/auth/me` 응답으로 만듭니다.
+- 여러 인스턴스(5단계): 같은 PostgreSQL(Testcontainers)을 쓰는 실제 서버 두 개(인스턴스 A·B)를 띄워, A에서 로그인한 쿠키로 B가 로그인 상태를 보이고, A에서 로그아웃하면 B도 `401`이며, B에서 CSRF가 필요한 댓글 작성이 통과하는지 확인합니다(`MultiInstanceApiTest`). 응답 헤더 `X-Backend-Instance`, 주기 작업(대기 정리·송출 대조)을 두 인스턴스에서 동시에 돌려도 예외 없이 같은 결과인지도 확인합니다. MediaMTX 제어 API는 가짜 HTTP 서버로 흉내 냅니다. Kubernetes 매니페스트·HPA·k6 스크립트는 자동 테스트 대신 위 [직접 확인](#스케일-아웃인과-상태-유지-5단계-kubernetes)으로 확인합니다.
 
 ## 문서
 
 - [GLOSSARY.md](GLOSSARY.md): 도메인 용어
 - [docs/adr/](docs/adr/): 설계 결정 기록
 - [docs/tdd-log.md](docs/tdd-log.md): TDD 사이클 기록
+- [k8s/](k8s/): Kubernetes 매니페스트(kustomize), [load/](load/): k6 부하·상태 유지 확인 스크립트
 - [AGENTS.md](AGENTS.md): 작업 지침
