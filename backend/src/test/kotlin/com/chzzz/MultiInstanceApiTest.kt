@@ -12,7 +12,16 @@ import org.springframework.http.HttpHeaders
 import org.springframework.http.MediaType
 import org.testcontainers.postgresql.PostgreSQLContainer
 import org.testcontainers.utility.DockerImageName
+import com.chzzz.live.LivePendingSweeper
+import org.springframework.jdbc.core.JdbcTemplate
 import java.nio.file.Files
+import java.sql.Timestamp
+import java.time.Duration
+import java.time.Instant
+import java.time.temporal.ChronoUnit
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 /**
  * 5단계: 백엔드가 여러 대여도 같은 결과를 낸다.
@@ -123,6 +132,41 @@ class MultiInstanceApiTest {
 
         assertThat(fromA).isEqualTo("instance-a")
         assertThat(fromB).isEqualTo("instance-b")
+    }
+
+    @Test
+    fun `두 인스턴스가 대기 방송 정리를 동시에 돌려도 예외 없이 같은 결과다`() {
+        val jdbc = instanceA.getBean(JdbcTemplate::class.java)
+        val createdAt = Instant.now().minus(Duration.ofMinutes(5)).truncatedTo(ChronoUnit.MICROS)
+        val ids = (1..20).map {
+            jdbc.queryForObject(
+                "INSERT INTO live_broadcast (title, status, stream_key_hash, created_at) " +
+                    "VALUES (?, 'PENDING', ?, ?) RETURNING id",
+                Long::class.java, "겹치는 정리 $it", "hash-$it", Timestamp.from(createdAt),
+            )!!
+        }
+        val sweepers = listOf(instanceA, instanceB).map { it.getBean(LivePendingSweeper::class.java) }
+        val ready = CountDownLatch(1)
+        val pool = Executors.newFixedThreadPool(4)
+
+        val runs = (1..8).map { i ->
+            pool.submit {
+                ready.await()
+                sweepers[i % 2].sweep()
+            }
+        }
+        ready.countDown()
+        runs.forEach { it.get(30, TimeUnit.SECONDS) } // 한 번이라도 예외가 나면 여기서 실패한다.
+        pool.shutdown()
+
+        val rows = jdbc.queryForList(
+            "SELECT status, ended_at FROM live_broadcast WHERE id IN (${ids.joinToString()})",
+        )
+        val expectedEnd = Timestamp.from(createdAt.plus(Duration.ofSeconds(60)))
+        assertThat(rows).hasSize(20).allSatisfy { row ->
+            assertThat(row["status"]).isEqualTo("ENDED")
+            assertThat(row["ended_at"]).isEqualTo(expectedEnd)
+        }
     }
 
     private fun BrowserLikeClient.signUp(loginId: String, nickname: String) {

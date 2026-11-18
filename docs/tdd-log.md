@@ -229,3 +229,4 @@ red → green(→ refactor) 사이클마다 한 줄씩 기록한다. 4단계까�
 | --- | --- | --- | --- | --- |
 | 187 | [01] 같은 DB를 쓰는 인스턴스 A·B: A에서 로그인한 쿠키로 B의 `/api/auth/me`가 200, A 로그아웃 뒤 B가 401, B에서 댓글 작성(CSRF) 201 | 3개 모두 B가 `401`(세션이 A의 메모리에만 있음) | `spring-boot-starter-session-jdbc` + Flyway `V5__create_spring_session.sql`, 자동 스키마 생성 끔, 세션 쿠키 이름 `JSESSIONID` 유지 | MockMvc 테스트의 `MockHttpSession`이 세션 쿠키를 기억해 싣도록 테스트 설정 추가(기존 호출부 그대로), 세션 고정 테스트는 쿠키 값 비교로 바꿈 |
 | 188 | [01] 인스턴스 A·B의 응답(일반 응답과 보안 필터의 401)에 `X-Backend-Instance: instance-a`/`instance-b`가 실린다 | 헤더 값이 `null` | 가장 먼저 도는 `InstanceNameHeaderFilter`, `instance.name`(`INSTANCE_NAME`, 비우면 호스트 이름) | 두 인스턴스 테스트를 `MultiInstanceApiTest`로 이름 바꿈 |
+| 189 | [01] 두 인스턴스의 `LivePendingSweeper`를 8번 동시에 돌려도 예외 없이 시간 초과 대기 20개가 모두 `ENDED`, 종료 시각은 생성+60초 | red 아님(확인용: 같은 행을 같은 값으로 바꾸는 작업이라 그대로 둠) | - | - |
