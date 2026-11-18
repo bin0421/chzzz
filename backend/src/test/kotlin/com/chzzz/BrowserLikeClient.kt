@@ -7,12 +7,23 @@ import org.springframework.web.client.RestClient
  * 실제 서버에 브라우저처럼 요청하는 테스트용 클라이언트. 받은 쿠키(세션, CSRF 토큰)를 기억해 다음 요청에 싣고,
  * 상태를 바꾸는 요청에는 XSRF-TOKEN 쿠키 값을 X-XSRF-TOKEN 헤더로 보낸다.
  *
+ * [onPort]로 같은 쿠키를 가진 채 다른 서버(인스턴스)에 요청할 수 있다. 로드밸런서 뒤의 브라우저 하나를 흉내 낸다.
+ *
  * MockMvc의 `csrf()`는 공유 CSRF 필터의 토큰 저장소를 바꿔 두므로, 실제 서버 테스트는 MockMvc와 같은 테스트 클래스에 두지 않는다.
  */
-class BrowserLikeClient(port: Int) {
+class BrowserLikeClient(
+    port: Int,
+    val cookies: MutableMap<String, String> = linkedMapOf(),
+) {
     private val client = RestClient.create("http://localhost:$port")
-    val cookies = linkedMapOf<String, String>()
     val setCookieHeaders = mutableListOf<String>()
+
+    /** 마지막 응답의 헤더. */
+    var lastResponseHeaders: HttpHeaders = HttpHeaders()
+        private set
+
+    /** 같은 쿠키 저장소를 함께 쓰는, 다른 포트의 서버로 가는 클라이언트. */
+    fun onPort(otherPort: Int): BrowserLikeClient = BrowserLikeClient(otherPort, cookies)
 
     fun get(path: String): Int = client.get().uri(path)
         .header(HttpHeaders.COOKIE, cookieHeader())
@@ -33,6 +44,7 @@ class BrowserLikeClient(port: Int) {
     private fun cookieHeader(): String = cookies.entries.joinToString("; ") { "${it.key}=${it.value}" }
 
     private fun remember(headers: HttpHeaders) {
+        lastResponseHeaders = HttpHeaders.copyOf(headers)
         headers[HttpHeaders.SET_COOKIE].orEmpty().forEach { setCookie ->
             setCookieHeaders += setCookie
             val (name, value) = setCookie.substringBefore(";").split("=", limit = 2)

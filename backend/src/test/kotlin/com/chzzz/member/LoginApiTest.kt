@@ -1,5 +1,6 @@
 package com.chzzz.member
 
+import com.chzzz.SessionCookieMockMvcConfiguration
 import com.chzzz.TestcontainersConfiguration
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.BeforeEach
@@ -71,12 +72,15 @@ class LoginApiTest {
 
     @Test
     fun `로그인하면 세션 ID가 바뀐다`() {
-        val session = MockHttpSession()
-        val before = session.id
+        // 이미 세션이 있는 브라우저(가입 직후)로 다시 로그인하면 세션 쿠키 값이 바뀌어야 한다(세션 고정 방지).
+        val session = mockMvc.signUp("fixation")
+        val before = SessionCookieMockMvcConfiguration.sessionCookieOf(session)
 
-        login("streamer", TEST_PASSWORD, session).andExpect { status { isOk() } }
+        login("fixation", TEST_PASSWORD, session).andExpect { status { isOk() } }
 
-        assertThat(session.id).isNotEqualTo(before)
+        assertThat(before).isNotNull()
+        assertThat(SessionCookieMockMvcConfiguration.sessionCookieOf(session)).isNotNull().isNotEqualTo(before)
+        mockMvc.get("/api/auth/me") { this.session = session }.andExpect { status { isOk() } }
     }
 
     private fun login(loginId: String, password: String, session: MockHttpSession): ResultActionsDsl =
