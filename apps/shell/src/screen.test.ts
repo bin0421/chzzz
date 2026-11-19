@@ -10,6 +10,8 @@ function fakeBridge(overrides: Partial<AppBridge> = {}): AppBridge {
     checkServer: vi.fn(async () => ({ status: 401 })),
     saveServerAndOpen: vi.fn(async () => {}),
     openServer: vi.fn(async () => {}),
+    getPendingCertificate: vi.fn(async () => null),
+    trustCertificate: vi.fn(async () => {}),
     ...overrides,
   }
 }
@@ -79,5 +81,85 @@ describe('시작 화면', () => {
     await userEvent.setup().click(screen.getByRole('button', { name: '서버 주소 변경' }))
 
     expect(await screen.findByLabelText('서버 주소')).toHaveValue('http://localhost:3000')
+  })
+})
+
+describe('인증서 지문 확인 화면', () => {
+  const SERVER = 'https://192.168.0.5:8443'
+  const 새지문 = 'AB:CD:EF:01'
+  const 이전지문 = '12:34:56:78'
+
+  it('연결 확인에서 신뢰하지 않은 인증서를 만나면 주소와 지문을 보여 주고, 신뢰하면 다시 확인한 뒤 저장한다', async () => {
+    const checkServer = vi
+      .fn<AppBridge['checkServer']>()
+      .mockResolvedValueOnce({ certificate: { origin: SERVER, fingerprint: 새지문, previousFingerprint: null } })
+      .mockResolvedValueOnce({ status: 401 })
+    const bridge = fakeBridge({ checkServer })
+    await renderShell(document.body, bridge, 'setup')
+
+    await 주소입력후확인(SERVER)
+
+    expect(await screen.findByRole('heading', { name: '서버 인증서 확인' })).toBeInTheDocument()
+    expect(screen.getByText(SERVER)).toBeInTheDocument()
+    expect(screen.getByText(새지문)).toBeInTheDocument()
+    expect(bridge.saveServerAndOpen).not.toHaveBeenCalled()
+
+    await userEvent.setup().click(screen.getByRole('button', { name: '신뢰하고 연결' }))
+
+    await waitFor(() => expect(bridge.saveServerAndOpen).toHaveBeenCalledWith(SERVER))
+    expect(bridge.trustCertificate).toHaveBeenCalledWith(SERVER, 새지문)
+    expect(checkServer).toHaveBeenCalledTimes(2)
+  })
+
+  it('연결 확인에서 신뢰를 거절하면 저장하지 않고 주소 입력 화면으로 돌아간다', async () => {
+    const bridge = fakeBridge({
+      checkServer: vi.fn(async () => ({ certificate: { origin: SERVER, fingerprint: 새지문, previousFingerprint: null } })),
+    })
+    await renderShell(document.body, bridge, 'setup')
+    await 주소입력후확인(SERVER)
+
+    await userEvent.setup().click(await screen.findByRole('button', { name: '연결하지 않음' }))
+
+    expect(await screen.findByLabelText('서버 주소')).toHaveValue(SERVER)
+    expect(bridge.trustCertificate).not.toHaveBeenCalled()
+    expect(bridge.saveServerAndOpen).not.toHaveBeenCalled()
+  })
+
+  it('서버 화면을 열다 지문이 바뀐 것을 알게 되면 경고와 함께 이전·새 지문을 보여 주고, 신뢰하면 서버를 다시 연다', async () => {
+    const bridge = fakeBridge({
+      getServerAddress: vi.fn(async () => SERVER),
+      getPendingCertificate: vi.fn(async () => ({ origin: SERVER, fingerprint: 새지문, previousFingerprint: 이전지문 })),
+    })
+    await renderShell(document.body, bridge, 'trust')
+
+    expect(screen.getByRole('alert')).toHaveTextContent('인증서 지문이 바뀌었습니다')
+    expect(screen.getByText(이전지문)).toBeInTheDocument()
+    expect(screen.getByText(새지문)).toBeInTheDocument()
+
+    await userEvent.setup().click(screen.getByRole('button', { name: '신뢰하고 연결' }))
+
+    await waitFor(() => expect(bridge.openServer).toHaveBeenCalled())
+    expect(bridge.trustCertificate).toHaveBeenCalledWith(SERVER, 새지문)
+  })
+
+  it('서버 화면을 열다 만난 인증서를 거절하면 서버를 열지 않고 주소 입력 화면으로 간다', async () => {
+    const bridge = fakeBridge({
+      getServerAddress: vi.fn(async () => SERVER),
+      getPendingCertificate: vi.fn(async () => ({ origin: SERVER, fingerprint: 새지문, previousFingerprint: null })),
+    })
+    await renderShell(document.body, bridge, 'trust')
+
+    await userEvent.setup().click(screen.getByRole('button', { name: '연결하지 않음' }))
+
+    expect(await screen.findByLabelText('서버 주소')).toHaveValue(SERVER)
+    expect(bridge.openServer).not.toHaveBeenCalled()
+    expect(bridge.trustCertificate).not.toHaveBeenCalled()
+  })
+
+  it('확인할 인증서가 없으면 주소 입력 화면을 보여 준다', async () => {
+    const bridge = fakeBridge({ getServerAddress: vi.fn(async () => SERVER) })
+    await renderShell(document.body, bridge, 'trust')
+
+    expect(screen.getByLabelText('서버 주소')).toHaveValue(SERVER)
   })
 })
