@@ -1,0 +1,17 @@
+{
+  "name": "chzzz-android",
+  "private": true,
+  "version": "1.0.0",
+  "description": "chzzz Android 앱",
+  "scripts": {
+    "build:shell": "npm --prefix ../shell run build",
+    "sync": "npm run build:shell && cap sync android"
+  },
+  "dependencies": {
+    "@capacitor/android": "8.6.0",
+    "@capacitor/core": "8.6.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.6.0"
+  }
+}
