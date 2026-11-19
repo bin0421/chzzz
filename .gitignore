@@ -25,3 +25,7 @@ Thumbs.db
 
 # 데스크톱 앱 빌드 결과(exe)
 apps/desktop/release/
+
+# Android 앱: 서명 키스토어는 저장소 밖에 두지만 실수로 넣지 않게 막는다. 빌드 결과는 apps/android/android/.gitignore가 막는다.
+*.jks
+*.keystore
