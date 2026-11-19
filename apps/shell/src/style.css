@@ -98,3 +98,18 @@ button:disabled {
   display: flex;
   justify-content: center;
 }
+
+.certificate {
+  display: grid;
+  gap: 4px;
+  margin: 16px 0;
+}
+
+.certificate dt {
+  font-weight: 600;
+}
+
+.certificate dd {
+  margin: 0 0 8px;
+  overflow-wrap: anywhere;
+}

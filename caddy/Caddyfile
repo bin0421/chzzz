@@ -12,7 +12,15 @@
 }
 
 https://{$PUBLIC_HOST}:{$HTTPS_PORT} {
-	tls internal
+	# 앱은 처음 연결할 때 이 서버 인증서의 지문을 사용자에게 확인받고 고정한다(ADR-0013).
+	# 기본값(중간 CA가 12시간짜리 인증서를 발급)이면 하루에도 여러 번 지문이 바뀌므로,
+	# 루트 CA가 직접 1년짜리 서버 인증서를 발급한다. 인증서와 CA는 caddy-data 볼륨에 남는다.
+	tls {
+		issuer internal {
+			lifetime 365d
+			sign_with_root
+		}
+	}
 
 	# 내부 엔드포인트(MediaMTX 인증·상태 훅)는 밖으로 전달하지 않는다.
 	handle /internal/* {

@@ -8,5 +8,8 @@ if (location.protocol === 'file:') {
     checkServer: (origin: string) => ipcRenderer.invoke('shell:check-server', origin),
     saveServerAndOpen: (origin: string) => ipcRenderer.invoke('shell:save-and-open', origin),
     openServer: () => ipcRenderer.invoke('shell:open-server'),
+    getPendingCertificate: () => ipcRenderer.invoke('shell:get-pending-certificate'),
+    trustCertificate: (origin: string, fingerprint: string) =>
+      ipcRenderer.invoke('shell:trust-certificate', origin, fingerprint),
   })
 }

@@ -19,4 +19,9 @@ describe('연결 확인 결과 해석 (/api/auth/me)', () => {
       message: '서버에 연결하지 못했습니다. (net::ERR_CONNECTION_REFUSED)',
     })
   })
+
+  it('서버 인증서를 아직 신뢰하지 않았으면 지문 확인이 필요하다고 알려 준다', () => {
+    const certificate = { origin: 'https://192.168.0.5:8443', fingerprint: 'AA:BB', previousFingerprint: null }
+    expect(interpretConnectionCheck({ certificate })).toEqual({ kind: 'untrusted-certificate', certificate })
+  })
 })
