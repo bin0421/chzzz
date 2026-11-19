@@ -1,10 +1,11 @@
-import { app, BrowserWindow, ipcMain, Menu, net, session, type IpcMainInvokeEvent, type WebContents } from 'electron'
+import { app, BrowserWindow, ipcMain, Menu, net, session, shell, type IpcMainInvokeEvent, type WebContents } from 'electron'
 import { request as httpsRequest } from 'node:https'
 import { join } from 'node:path'
 import type { TLSSocket } from 'node:tls'
 import { parseServerAddress } from '../../shell/src/address.js'
 import type { ConnectionCheckResult, PendingCertificate } from '../../shell/src/connection.js'
 import { persistentCookieFor } from './cookies.js'
+import { decideLinkTarget } from './links.js'
 import { isPermissionAllowed } from './permissions.js'
 import { loadSettings, saveSettings, type Settings } from './settings.js'
 import { decideCertificateTrust, fingerprintOfDer, fingerprintOfPem } from './trust.js'
@@ -35,6 +36,7 @@ if (!app.requestSingleInstanceLock()) {
     win.focus()
   })
   app.on('certificate-error', handleCertificateError)
+  app.on('web-contents-created', (_event, contents) => applyLinkRules(contents))
   app.whenReady().then(start)
   app.on('window-all-closed', () => app.quit())
 }
@@ -112,6 +114,24 @@ function handleCertificateError(
     shownFingerprints.set(decision.origin, fingerprint)
     if (!alreadyShown) openShell('trust')
   }
+}
+
+// 주소 열기 규칙: 서버 출처와 토스 결제창은 앱 안, 다른 http(s)는 기본 브라우저, 그 밖의 스킴은 운영체제로 넘긴다.
+// 링크 이동(will-navigate)과 새 창(window.open, target=_blank) 모두에 적용한다.
+function applyLinkRules(contents: WebContents): void {
+  contents.on('will-navigate', (event) => {
+    if (!event.url.startsWith('file:') && !openInApp(event.url)) event.preventDefault()
+  })
+  contents.setWindowOpenHandler(({ url }) => ({ action: openInApp(url) ? 'allow' : 'deny' }))
+}
+
+// 앱 안에서 열 주소면 true. 아니면 규칙대로 밖으로 넘기거나 막고 false.
+function openInApp(url: string): boolean {
+  const target = decideLinkTarget({ url, serverOrigin: settings.serverOrigin })
+  if (target === 'browser' || target === 'system') {
+    shell.openExternal(url).catch(() => {})
+  }
+  return target === 'app'
 }
 
 function restrictPermissions(): void {
