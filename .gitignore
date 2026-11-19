@@ -22,3 +22,6 @@ dist/
 *.iml
 .DS_Store
 Thumbs.db
+
+# 데스크톱 앱 빌드 결과(exe)
+apps/desktop/release/

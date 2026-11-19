@@ -1,0 +1,57 @@
+{
+  "name": "chzzz-desktop",
+  "productName": "chzzz",
+  "private": true,
+  "version": "1.0.0",
+  "description": "chzzz 데스크톱 앱",
+  "author": "chzzz",
+  "type": "module",
+  "main": "dist/desktop/src/main.js",
+  "scripts": {
+    "build:shell": "npm --prefix ../shell run build",
+    "build": "npm run build:shell && tsc -p tsconfig.json",
+    "start": "npm run build && electron .",
+    "dist": "npm run build && electron-builder --win nsis",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "electron": "45.2.3",
+    "electron-builder": "26.18.0",
+    "typescript": "~7.0.2",
+    "vitest": "^5.1.0"
+  },
+  "build": {
+    "appId": "dev.chzzz.desktop",
+    "productName": "chzzz",
+    "copyright": "chzzz",
+    "directories": {
+      "output": "release",
+      "buildResources": "assets"
+    },
+    "files": [
+      "dist/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../shell/dist",
+        "to": "shell"
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "assets/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "chzzz",
+      "artifactName": "chzzz-Setup-${version}.exe"
+    }
+  }
+}
