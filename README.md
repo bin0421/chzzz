@@ -10,10 +10,11 @@
 - 후원 결제: [토스페이먼츠](https://docs.tosspayments.com/reference) 결제위젯 **테스트 모드** + 서버 승인 확인 ([ADR-0007](docs/adr/0007-toss-payments-test-mode-with-server-confirmation.md)), 중복 확정 방지 ([ADR-0008](docs/adr/0008-idempotent-donation-confirmation.md))
 - 라이브 상태 정리: MediaMTX 송출 목록과 주기 대조 ([ADR-0010](docs/adr/0010-reconcile-live-status-with-mediamtx.md))
 - 실행: Docker Compose(db, backend, frontend, mediamtx, caddy), 그리고 5단계의 로컬 Kubernetes(Docker Desktop 내장 클러스터 + kustomize, 백엔드 2~5대 HPA 자동 스케일, [ADR-0011](docs/adr/0011-docker-desktop-kubernetes-with-kustomize.md))
+- 앱(6단계): Windows **데스크톱 앱**(exe, Electron 45.2.3 + electron-builder 26.18.0)과 **Android 앱**(apk, Capacitor 8.6.0 + Kotlin). 앱은 저장한 **서버 주소**의 화면을 앱 창에서 열고([ADR-0012](docs/adr/0012-app-opens-server-screen.md)), 처음 연결할 때 서버 인증서 지문을 확인받아 고정합니다([ADR-0013](docs/adr/0013-pin-server-certificate-fingerprint.md)). 설치 파일은 [GitHub Release `stage-6`](https://github.com/bin0421/chzzz/releases/tag/stage-6)에 있습니다.
 
 ## 단계별 구현 내역
 
-과제는 5단계로 진행합니다.
+과제는 6단계로 진행했습니다.
 
 | 단계 | 내용 | 상태 |
 | --- | --- | --- |
@@ -22,6 +23,7 @@
 | 3 | 회원가입·로그인, 방송 소유자 권한(수정·삭제·송출 제어), 방송별 댓글 (TDD) | 완료 |
 | 4 | 방송자에게 테스트 결제 후원, 서버 승인 확인, 중복 확정 방지, 방송별 후원 내역·합계 (TDD) | 완료 |
 | 5 | 로컬 Kubernetes에서 백엔드 여러 대 실행, CPU 기반 자동 스케일 아웃·인(2~5대), 요청 분산, 세션·영상·방송 상태를 공용 저장소에, k6 부하·상태 유지 확인 스크립트 (세션 공유·라이브 대조는 TDD) | 완료 |
+| 6 | 설치형 앱: Windows 데스크톱 앱(exe)과 Android 앱(apk). 서버 주소 저장·연결 확인, 인증서 지문 신뢰, 주소 열기 규칙, 카메라·마이크 앱 권한, 로그인 유지, GitHub Release 배포 (판단 규칙은 TDD) | 완료 |
 
 ## 실행 방법
 
@@ -152,6 +154,152 @@ cd frontend && VITE_API_PROXY_TARGET=http://localhost:8081 npm run dev
   - Android Chrome: 주소창 왼쪽 아이콘(사이트 설정) → **권한** → 카메라·마이크를 **허용**으로 바꾸고 새로고침합니다.
   - iOS Safari: 주소창의 **aA** → **웹 사이트 설정** → 카메라·마이크를 **허용**으로 바꾸고 새로고침합니다. 기기 전체에서 막았다면 **설정 → Safari → 카메라/마이크**도 확인합니다. (직접 확인하지는 않았습니다)
 - HTTPS가 아닌 주소(예: `http://192.168.0.5:3000`)로 들어오면 브라우저가 카메라를 막습니다. 송출 화면이 `https://` 주소로 다시 접속하라고 안내합니다.
+- 앱에서 거부했을 때는 [앱 권한 다시 허용](#앱-권한-다시-허용)을 봅니다.
+
+## 앱 (6단계: 데스크톱 exe, Android apk)
+
+**앱**은 기기에 설치해 브라우저 없이 쓰는 chzzz 클라이언트입니다. 앱 안에 화면을 따로 넣지 않고, 사용자가 처음 입력한 **서버 주소**의 chzzz 화면을 앱 창에서 엽니다([ADR-0012](docs/adr/0012-app-opens-server-screen.md)). 그래서 화면과 API가 같은 출처이고, 로그인 세션·CSRF·토스 결제 흐름이 웹과 똑같이 동작합니다. 서버가 없으면 앱만으로는 쓸 수 없습니다.
+
+### 내려받기
+
+[GitHub Release `stage-6`](https://github.com/bin0421/chzzz/releases/tag/stage-6)에서 내려받습니다. 버전은 둘 다 1.0.0입니다.
+
+| 앱 | 파일 | 크기 | SHA-256 |
+| --- | --- | --- | --- |
+| 데스크톱 앱 (Windows 10 이상, 64비트) | [chzzz-Setup-1.0.0.exe](https://github.com/bin0421/chzzz/releases/download/stage-6/chzzz-Setup-1.0.0.exe) | 121,311,212바이트(약 116MB) | `d38b3193c236f3a6acb81a986864effc34beb32f6f1eddd99103f12cde2e759e` |
+| Android 앱 (Android 7.0 이상) | [chzzz-1.0.0.apk](https://github.com/bin0421/chzzz/releases/download/stage-6/chzzz-1.0.0.apk) | 3,121,619바이트(약 3.0MB) | `a97163e11acf4f77a26ba1cb6e467879957749191f9d5031967b6c47e04fc4b3` |
+
+내려받은 파일의 체크섬은 PowerShell에서 확인합니다(출력은 대문자이고 위 값과 같아야 합니다).
+
+```powershell
+Get-FileHash .\chzzz-Setup-1.0.0.exe -Algorithm SHA256
+```
+
+- 지원 범위: 데스크톱 앱은 Electron 45가 지원하는 Windows 10 이상(x64), Android 앱은 `minSdk 24`라 Android 7.0 이상입니다. 실제 확인은 Windows 11, Android 에뮬레이터(API 37), 실제 Android 휴대폰에서 했습니다.
+- 코드 서명 인증서가 없어 exe는 서명하지 않았고, apk는 저장소 밖의 자체 키스토어로 서명했습니다(서명 인증서 `CN=chzzz, O=chzzz`, 인증서 SHA-256 `1de32827c33483c85ed48640a4fe68eab55e010127c1c0785db8b63c5c752dab`. `apksigner verify --print-certs`로 확인). 그래서 아래 설치 경고가 나옵니다.
+
+### 설치
+
+**데스크톱 앱 (Windows)**
+
+1. `chzzz-Setup-1.0.0.exe`를 실행합니다.
+2. 서명이 없어 SmartScreen이 "Windows의 PC 보호" 창을 띄우면 **추가 정보** → **실행**을 누릅니다.
+3. 설치 마법사에서 설치 위치를 고르고 설치합니다. 사용자 단위 설치라 관리자 권한이 필요 없고, 기본 위치는 `%LOCALAPPDATA%\Programs\chzzz`입니다. 시작 메뉴와 바탕화면에 chzzz 바로 가기가 생깁니다.
+4. 지우기: Windows 설정 → 앱 → 설치된 앱 → **chzzz** → 제거. 서버 주소·신뢰한 인증서·쿠키는 `%APPDATA%\chzzz`에 남습니다.
+
+이 과제의 확인에서는 설치 마법사 대신 조용한 설치(`chzzz-Setup-1.0.0.exe /S`)로 설치했습니다.
+
+**Android 앱**
+
+1. 휴대폰 브라우저로 Release 페이지에서 `chzzz-1.0.0.apk`를 내려받습니다(또는 PC에서 받은 파일을 휴대폰 다운로드 폴더로 옮깁니다).
+2. 다운로드 알림이나 파일 앱에서 apk를 엽니다.
+3. "출처를 알 수 없는 앱" 안내가 나오면 **설정**으로 가서 그 앱(Chrome, 파일 앱 등)의 **이 출처 허용**을 켜고 돌아와 **설치**를 누릅니다. 메뉴 이름은 제조사·Android 버전마다 조금 다릅니다.
+4. 설치가 끝나면 앱 목록의 **chzzz** 아이콘으로 엽니다.
+
+### 서버 준비
+
+앱은 [전체 실행](#전체-실행-채점용)(`docker compose up --build`) 서버에 연결합니다.
+
+- **휴대폰(Android 앱) 또는 다른 PC**: [휴대폰 연결](#휴대폰-연결)의 1~4(같은 Wi-Fi, `.env`의 `PUBLIC_HOST`를 서버 PC의 LAN IP로, 방화벽 허용)를 한 뒤 서버 주소 **`https://<PUBLIC_HOST>:8443`**을 씁니다.
+- **서버와 같은 PC의 데스크톱 앱**: `http://localhost:3000`도 됩니다(`http`는 `localhost`·`127.0.0.1`만 허용). 이 주소는 인증서가 없어 지문 확인을 하지 않습니다.
+- 서버는 Caddy가 만든 로컬 CA로 **1년짜리 서버 인증서**를 직접 발급합니다(`caddy/Caddyfile`의 `issuer internal { lifetime 365d sign_with_root }`). 앱이 이 인증서의 지문을 고정하기 때문입니다([ADR-0013](docs/adr/0013-pin-server-certificate-fingerprint.md)).
+
+### 첫 실행: 서버 주소와 인증서 지문
+
+1. 앱을 처음 열면 **chzzz 서버 연결** 화면이 나옵니다. 서버 주소(예: `https://192.168.0.5:8443`)를 넣고 **연결 확인 후 저장**을 누릅니다.
+   - 주소 형식이 틀리면 저장하기 전에 이유가 보입니다(스킴 없음, 지원하지 않는 스킴, `localhost`가 아닌 `http` 등). 경로·쿼리는 버리고 출처(`스킴://호스트:포트`)만 저장합니다.
+   - 앱은 `/api/auth/me`가 `200` 또는 `401`로 응답하면 chzzz 서버로 봅니다. 닿지 않으면 **서버에 연결하지 못했습니다** 화면에서 **다시 시도**나 **서버 주소 변경**을 고릅니다.
+2. HTTPS 서버면 **서버 인증서 확인** 화면에 서버 주소와 **SHA-256 지문**이 나옵니다. 서버 PC에서 확인한 지문(아래)과 같을 때만 **신뢰하고 연결**을 누릅니다. **연결하지 않음**을 누르면 아무것도 저장하지 않고 주소 입력 화면으로 돌아갑니다.
+3. 신뢰하면 그 서버 주소와 지문 조합만 **신뢰한 인증서**로 저장하고 서버 화면을 엽니다. 다음 실행부터는 묻지 않고 바로 서버 화면이 열립니다. 저장한 서버 주소가 아닌 곳의 신뢰되지 않은 인증서는 묻지 않고 거절합니다.
+4. 같은 주소에서 지문이 바뀌면 "인증서 지문이 바뀌었습니다" 경고와 함께 새 지문과 전에 신뢰한 지문을 보여 주고 다시 묻습니다. 서버 데이터를 지웠거나(`docker compose down -v`) 인증서를 새로 만든 게 아니라면 연결하지 않습니다.
+
+**서버 PC에서 지문 보기**: 전체 실행이 떠 있는 서버 PC의 저장소 루트에서 실행합니다. Caddy가 보관한 서버 인증서(첫 번째 인증서)의 DER SHA-256을 앱과 같은 형식(대문자, `:` 구분)으로 찍습니다.
+
+```powershell
+docker compose exec caddy sh -c 'sed -n 1,/END/p /data/caddy/certificates/local/$PUBLIC_HOST/$PUBLIC_HOST.crt | grep -v CERTIFICATE | base64 -d | sha256sum | cut -c1-64 | tr a-f A-F | fold -w2 | paste -sd:'
+```
+
+```text
+C4:16:15:54:28:74:6B:86:7E:4B:D5:CB:74:E3:69:31:0F:6E:19:B2:AB:23:01:2D:14:9F:57:55:77:F4:37:81
+```
+
+(위 출력은 이 과제의 확인 서버 예시입니다. 서버마다 다릅니다.) PC 브라우저로 `https://<PUBLIC_HOST>:8443`에 들어가 인증서 보기의 SHA-256 지문으로 비교해도 됩니다.
+
+**기존 `caddy-data` 볼륨을 쓰는 서버**: 6단계 전에 전체 실행을 띄운 적이 있으면 볼륨에 이전 설정의 12시간짜리 인증서가 남아 있습니다. 이 인증서가 한 번 갱신될 때(최대 12시간 안) 1년 인증서로 바뀌므로, 그때 앱이 지문이 바뀌었다고 **한 번 더 묻습니다**. 위 명령으로 새 지문을 확인하고 신뢰하면 그 뒤로는 1년 동안 묻지 않습니다. 처음부터 1년 인증서로 시작하려면 데이터를 지우고(`docker compose down -v`, DB·업로드도 지워짐) 다시 띄웁니다.
+
+### 앱에서 쓰기
+
+- 방송 목록, 녹화·라이브 시청, 회원가입·로그인, 댓글, 후원은 웹과 같은 화면입니다.
+- **로그인 유지**: 앱을 닫았다 열어도 로그인이 남습니다. 앱이 서버의 세션 쿠키를 30일 만료로 다시 저장하기 때문입니다. 서버 세션은 30분 동안 요청이 없으면 끝나므로(3단계 규칙 그대로) 그보다 오래 비우면 다시 로그인합니다.
+- **송출**: Android 앱은 카메라·마이크 앱 권한을 처음 송출할 때 묻습니다. 데스크톱 앱은 PC 웹캠·마이크를 씁니다. 두 앱 모두 카메라·마이크를 저장한 서버 주소의 화면에만 줍니다.
+- **후원**: 후원하기 → 결제하기를 누르면 토스 결제창이 앱 안에서 열리고, 결제 후(또는 취소 후) 같은 로그인 상태로 결과 화면에 돌아옵니다. PC는 결제창이 같은 화면의 iframe으로, 모바일은 결제창 주소로 화면이 이동해 열립니다.
+- **주소 열기 규칙**: 앱 안에서는 서버 주소와 토스 결제 도메인(`https://`의 `tosspayments.com`·`toss.im`과 그 하위 도메인)만 엽니다. 다른 `http(s)` 링크는 기기의 기본 브라우저로, `mailto:`·`tel:`·`intent://`·결제 앱 스킴은 운영체제로 넘기고, `file:`·`javascript:`·`data:`·`blob:`·`content:` 같은 주소는 막습니다. 링크 이동과 새 창(`window.open`, `target=_blank`) 모두 같은 규칙입니다.
+- **뒤로 가기(Android)**: 앱 안 이전 화면으로 가고, 첫 화면에서는 앱을 닫습니다.
+- **연결 실패**: 서버가 꺼졌거나 닿지 않으면(15초 안에 서버 화면이 열리기 시작하지 않으면) 연결 실패 화면에서 **다시 시도** 또는 **서버 주소 변경**을 고릅니다.
+
+### 서버 주소 바꾸기
+
+- **데스크톱 앱**: 메뉴 **chzzz → 서버 주소 변경**(`Ctrl+,`). **다시 불러오기**(`Ctrl+R`)는 캐시를 무시하고 서버 화면을 다시 엽니다.
+- **Android 앱**: 메뉴가 없으므로 서버에 닿지 않을 때 나오는 연결 실패 화면의 **서버 주소 변경**으로 바꿉니다. 휴대폰 설정에서 chzzz 앱의 저장공간(데이터)을 지우면 처음 실행 상태로 돌아갑니다(서버 주소·신뢰한 인증서·로그인 모두 지워짐, 직접 확인하지는 않았습니다).
+- 새 주소는 처음 실행과 똑같이 다시 확인합니다. 신뢰한 인증서는 출처마다 따로 저장되므로, 이전 서버의 신뢰 기록은 새 주소에 적용되지 않습니다.
+
+### 앱 권한 다시 허용
+
+- **Android 앱**: 카메라·마이크 권한을 거부하면 송출 화면에 "권한이 거부되었습니다"가 보이고, 앱이 "카메라·마이크 권한이 꺼져 있습니다" 대화상자를 띄웁니다. **설정 열기**를 누르면 chzzz 앱 정보 화면이 열립니다. **권한**에서 카메라와 마이크를 허용한 뒤 송출 화면을 다시 엽니다. 직접 들어가려면 휴대폰 **설정 → 애플리케이션 → chzzz → 권한**입니다.
+- **데스크톱 앱**: 앱이 서버 주소 화면의 권한 요청을 자동으로 허용하므로 따로 묻지 않습니다. 카메라를 못 쓰면 Windows **설정 → 개인 정보 및 보안 → 카메라(마이크)**에서 데스크톱 앱 접근이 켜져 있는지 봅니다(직접 확인하지는 않았습니다).
+
+### 앱 빌드
+
+빌드는 Windows PC에서 했습니다(GitHub Actions는 쓰지 않음). 결과물(`apps/desktop/release/`, `apps/android/android/app/build/`)과 키스토어는 커밋하지 않습니다(`.gitignore`).
+
+필요한 도구:
+- Node.js 22 이상(npm)
+- 데스크톱: 추가 도구 없음(Electron과 electron-builder는 npm으로 받음)
+- Android: Android Studio(Android SDK, compileSdk·targetSdk 36. 첫 빌드 때 Gradle이 platform 36을 받습니다), **JDK 21**(Temurin 21로 확인. JDK 25와 Android Studio 내장 JBR 25는 쓰지 않았습니다), 환경변수 `ANDROID_HOME`(보통 `%LOCALAPPDATA%\Android\Sdk`). 환경변수 대신 `apps/android/android/local.properties`에 `sdk.dir=C\:\\...\\Android\\Sdk`를 적어도 됩니다(이 파일은 커밋하지 않음). Gradle이 `SDK location not found`로 멈추면 이 경로가 실제 SDK 폴더(`platforms`, `build-tools`가 있는 곳)인지 확인합니다
+
+고정한 버전: Electron `45.2.3`, electron-builder `26.18.0`, `@capacitor/core`·`@capacitor/cli`·`@capacitor/android` `8.6.0`, Kotlin Gradle 플러그인 2.3.21, Android Gradle 플러그인 8.13.0, Gradle 8.14.3. 앱 버전 1.0.0(Android `versionCode 1`, `applicationId dev.chzzz.app`, `minSdk 24`).
+
+두 앱 모두 시작 화면([apps/shell/](apps/shell/), 서버 주소 입력·연결 확인·연결 실패·인증서 확인)을 함께 쓰고, 빌드 스크립트가 먼저 그것을 빌드합니다.
+
+**데스크톱 exe** → `apps/desktop/release/chzzz-Setup-1.0.0.exe`
+
+```powershell
+cd apps/shell; npm ci; cd ../desktop; npm ci; npm run dist
+```
+
+개발 실행은 `npm start`입니다(설정은 `%APPDATA%\chzzz-dev`에 따로 저장되고 메뉴에 개발자 도구가 생깁니다).
+
+**Android apk** → `apps/android/android/app/build/outputs/apk/release/app-release.apk`
+
+1. 시작 화면을 빌드해 Android 프로젝트로 복사합니다.
+   ```powershell
+   cd apps/shell; npm ci; cd ../android; npm ci; npm run sync
+   ```
+2. 릴리스 서명 키스토어를 저장소 밖에 한 번 만듭니다(이 과제는 `%USERPROFILE%\.keystores\chzzz-release.jks`, 별칭 `chzzz`, PKCS12, RSA 2048, 10000일). 같은 설정으로 만드는 명령은 아래와 같고, 비밀번호는 `keytool`이 물을 때 입력합니다. `keytool`은 JDK 21의 `bin`에 있습니다.
+   ```powershell
+   keytool -genkeypair -keystore $env:USERPROFILE\.keystores\chzzz-release.jks -storetype PKCS12 -alias chzzz -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=chzzz, O=chzzz"
+   ```
+3. 서명 정보는 환경변수로만 받습니다. 비밀번호는 파일·저장소·명령 기록에 남기지 않도록 `Read-Host -AsSecureString`으로 그 터미널에만 넣습니다.
+
+   | 변수 | 설명 |
+   | --- | --- |
+   | `CHZZZ_ANDROID_KEYSTORE` | 키스토어 파일 경로 |
+   | `CHZZZ_ANDROID_KEYSTORE_PASSWORD` | 키스토어 비밀번호 |
+   | `CHZZZ_ANDROID_KEY_ALIAS` | 키 별칭 |
+   | `CHZZZ_ANDROID_KEY_PASSWORD` | 키 비밀번호(PKCS12는 키스토어 비밀번호와 같음) |
+
+   ```powershell
+   $env:JAVA_HOME = 'C:\Program Files\Eclipse Adoptium\jdk-21.0.13.9-hotspot'; $env:ANDROID_HOME = "$env:LOCALAPPDATA\Android\Sdk"; $env:CHZZZ_ANDROID_KEYSTORE = "$env:USERPROFILE\.keystores\chzzz-release.jks"; $env:CHZZZ_ANDROID_KEY_ALIAS = 'chzzz'
+   ```
+   ```powershell
+   $s = Read-Host -AsSecureString '키스토어 비밀번호'; $p = [Runtime.InteropServices.Marshal]::PtrToStringBSTR([Runtime.InteropServices.Marshal]::SecureStringToBSTR($s)); $env:CHZZZ_ANDROID_KEYSTORE_PASSWORD = $p; $env:CHZZZ_ANDROID_KEY_PASSWORD = $p; Remove-Variable s, p
+   ```
+4. 서명된 apk를 만들고 비밀번호 환경변수를 지웁니다. 서명 변수가 하나라도 없으면 Gradle은 서명하지 않은 릴리스 apk를 만듭니다.
+   ```powershell
+   cd android; .\gradlew.bat clean assembleRelease; Remove-Item Env:CHZZZ_ANDROID_KEYSTORE_PASSWORD, Env:CHZZZ_ANDROID_KEY_PASSWORD
+   ```
+
+이 PC는 PowerShell 실행 정책이 `.ps1` 스크립트를 막아서, 스크립트 파일 대신 위 명령을 터미널에서 직접 실행했습니다(정책은 바꾸지 않았습니다). Android 단위 테스트는 `.\gradlew.bat testReleaseUnitTest`입니다.
 
 ## 회원·로그인과 공개 범위
 
@@ -477,6 +625,17 @@ TOSS_SECRET_KEY=test_gsk_docs_OaPz8L5KdmQXkzRz3y47BMw6
 - **부하·상태 유지 확인 스크립트**: [load/](load/)의 k6 스크립트 두 개. 부하는 로그인 없는 공개 GET(녹화·라이브 방송 목록·상세, 댓글·후원 목록), 상태 유지 확인은 회원가입·로그인 → 방송 등록·댓글 작성 → 같은 쿠키로 로그인 상태·방송 목록·댓글을 주기적으로 조회하고 응답한 파드와 결과를 찍습니다. 하나라도 어긋나면 0이 아닌 종료 코드(99)로 끝납니다.
 - 1~4단계의 compose 실행 경로(휴대폰 HTTPS 포함)는 그대로입니다.
 
+### 구현한 것 (6단계: 설치형 앱)
+
+자세한 사용법은 [앱](#앱-6단계-데스크톱-exe-android-apk)에 있습니다. `frontend/`·`backend/`는 바꾸지 않았고, 서버 쪽 변경은 `caddy/Caddyfile`의 1년 인증서 발급뿐입니다.
+
+- **시작 화면**([apps/shell/](apps/shell/), TypeScript + Vite, 프레임워크 없음): 서버 주소 입력·검증, 연결 확인(`/api/auth/me` 200·401), 연결 실패(다시 시도·서버 주소 변경), 서버 인증서 확인(주소·지문·바뀐 지문 경고). 두 앱이 같은 화면을 쓰고, 앱과는 "앱 다리"(데스크톱 preload, Android 앱 안 Capacitor 로컬 플러그인 `ChzzzApp`)로 말합니다.
+- **데스크톱 앱**([apps/desktop/](apps/desktop/), Electron 45.2.3 + TypeScript): 서버 주소·신뢰한 인증서를 `%APPDATA%\chzzz\settings.json`에 저장, 메뉴(서버 주소 변경, 다시 불러오기, 개발 빌드만 개발자 도구), `certificate-error`에 지문 고정, 서버 출처에만 미디어 권한, 로그인 쿠키 30일 보존, 주소 열기 규칙, electron-builder NSIS exe(서명 없음).
+- **Android 앱**([apps/android/](apps/android/), Capacitor 8.6.0 + Kotlin, 추가 플러그인 없음): SharedPreferences에 저장, WebView SSL 오류 처리에 지문 고정(연결 확인도 지문 고정 TrustManager로), `CAMERA`·`RECORD_AUDIO` 런타임 요청 뒤 서버 출처에만 WebView 권한, 거절 시 앱 설정 안내 대화상자, 로그인 쿠키 30일 보존, 주소 열기 규칙(`intent://`는 안전하게 다듬어 운영체제로), 뒤로 가기, 15초 연결 시간 초과, 릴리스 서명 apk.
+- **같은 규칙, 두 구현**: 신뢰한 인증서 판단과 주소 열기 규칙은 하나의 규칙 표(입력 → 기대 결과)를 데스크톱(Vitest)과 Android(JUnit)가 각각 테스트합니다.
+- **인증서 지문 고정**: Caddy 기본값(12시간 서버 인증서)으로는 지문이 하루에도 여러 번 바뀌므로, 루트가 1년 서버 인증서를 직접 발급하게 바꾸고 그 지문을 (서버 주소, 지문) 조합으로 고정합니다([ADR-0013](docs/adr/0013-pin-server-certificate-fingerprint.md)).
+- **배포**: GitHub Release `stage-6`에 exe·apk와 SHA-256 체크섬.
+
 ### API
 
 | 메서드 | 경로 | 설명 |
@@ -545,6 +704,14 @@ TOSS_SECRET_KEY=test_gsk_docs_OaPz8L5KdmQXkzRz3y47BMw6
   - 업로드 저장소를 `ReadWriteMany` 스토리지·오브젝트 스토리지로 바꾸기(노드 1대라 공유 볼륨으로 충분)
   - 분산 락(ShedLock 등)으로 주기 작업을 한 인스턴스에서만 돌리기(같은 값으로 바꾸는 작업이라 모든 인스턴스가 돌림)
   - 무중단 롤링 업데이트 전략 튜닝, 부하 테스트의 성능 목표(응답 시간 SLA)
+- 6단계 범위 밖:
+  - 스토어 배포(Play 스토어, Microsoft Store), 코드 서명 인증서, 자동 업데이트
+  - iOS·macOS·Linux 앱
+  - 빌드한 프론트를 앱에 넣는 방식(오프라인 화면, 딥링크 결제 복귀, 출처 분리에 따른 인증 재설계, [ADR-0012](docs/adr/0012-app-opens-server-screen.md))
+  - 클라우드 서버, 앱에 서버 주소를 미리 넣어 두는 방식
+  - 푸시 알림, 백그라운드 송출, 화면 꺼짐 중 송출, 앱 전용 화면·기능
+  - GitHub Actions 자동 빌드
+  - 카드 정보를 넣는 테스트 결제(4단계 결정 그대로. 결제창이 앱 안에서 열리고 취소하면 돌아오는 것까지만 확인)
 - E2E 자동화 테스트(대신 아래 직접 확인 절차)
 
 ## 직접 확인 절차
@@ -994,6 +1161,28 @@ backend   Deployment/backend   cpu: 39%/50%    2         5         2          13
 
 </details>
 
+### 앱 (6단계, 데스크톱 앱 + Android 앱)
+
+**준비**: 전체 실행 서버를 [휴대폰 연결](#휴대폰-연결)의 1~4대로 띄우고(`.env`의 `PUBLIC_HOST`=서버 PC의 LAN IP), [서버 PC에서 지문 보기](#첫-실행-서버-주소와-인증서-지문)로 지문을 적어 둡니다. 앱은 [내려받기](#내려받기)·[설치](#설치)대로 설치합니다. 카드 정보는 넣지 않습니다.
+
+1. **첫 실행과 주소 검증**: 앱을 열면 **chzzz 서버 연결** 화면 → `192.168.0.5:8443`(스킴 없음), `http://192.168.0.5:3000`(localhost 아닌 http)을 넣으면 저장하지 않고 이유가 보이는지 → 서버가 꺼진 주소면 **서버에 연결하지 못했습니다**.
+2. **인증서 지문 신뢰**: `https://<PUBLIC_HOST>:8443` → **서버 인증서 확인**에 서버 PC에서 본 것과 같은 지문 → **연결하지 않음**이면 주소 입력 화면(아무것도 저장 안 됨) → 다시 확인 → **신뢰하고 연결** → 서버 화면.
+3. **로그인 유지**: 회원가입·로그인 → 앱을 완전히 닫았다 다시 열면 묻지 않고 바로 서버 화면, 헤더에 닉네임이 그대로.
+4. **송출·시청**: Android 앱에서 `/live/new` → 카메라·마이크 권한 허용 → 방송 시작 → 데스크톱 앱(또는 PC 브라우저)에서 그 방송 재생 → Android 앱에서 종료 → 시청 화면에 "방송이 종료되었습니다". 권한을 거부하면 이유와 **설정 열기** 대화상자가 보이는지도 봅니다.
+5. **댓글·후원**: 댓글 작성 → 다른 회원의 방송에서 후원하기 → 결제하기 → 토스 결제창이 **앱 안에서** 열림 → 입력하지 않고 닫거나 뒤로 → "후원을 취소했습니다", 로그인 그대로.
+6. **주소 열기 규칙**: 서버 밖 링크는 기본 브라우저(Android는 Chrome)로 열리고 앱 화면은 그대로.
+7. **뒤로 가기(Android)**: 앱 안 이전 화면 → 첫 화면에서는 앱이 닫힘.
+8. **연결 실패와 주소 변경**: 서버(또는 `caddy` 컨테이너)를 멈추고 앱을 다시 열면 연결 실패 화면 → 서버를 켜고 **다시 시도** → 서버 화면, 로그인 그대로. 데스크톱 앱은 메뉴 **chzzz → 서버 주소 변경**으로 다른 주소를 넣었다 되돌립니다.
+9. **지문이 바뀌면 다시 묻기**: 같은 주소로 인증서가 다른 서버(예: 다른 `caddy-data` 볼륨)를 띄우고 앱을 다시 열면 "인증서 지문이 바뀌었습니다"와 두 지문 → **연결하지 않음**이면 저장한 지문 그대로.
+
+**실제로 확인한 결과** (2026-11-19, Windows 11 PC, 서버 `https://192.168.0.5:8443`, 서버 인증서 `C4:16:15:54:…:F4:37:81`, 기존 데이터를 지우지 않으려고 별도 볼륨의 compose 프로젝트 `chzzz-app02`로 띄움):
+
+- **데스크톱 앱, `http://localhost:3000`** (exe를 `/S`로 설치): 첫 실행 시작 화면 → 형식 오류·연결 실패 문구 → 주소 저장 → 회원가입·로그아웃·로그인 → 앱 재시작 시 바로 서버 화면·로그인 유지 → 녹화 재생·댓글 → 웹캠 송출 시작, 웹(960x540)과 앱 새 창(1280x720)에서 시청, 종료(`ENDED`) → `frontend` 컨테이너 정지 시 연결 실패 화면, 켠 뒤 다시 시도로 복귀 → 메뉴로 서버 주소 변경·다시 불러오기, 설치본 메뉴에 개발자 도구 없음 → 다른 출처(`127.0.0.1`)의 마이크 요청은 거절, 서버 출처는 허용. 이 PC에는 카메라가 없어(마이크만 있음) 송출은 Chromium 가짜 카메라(`chzzz.exe --use-fake-device-for-media-stream`)로 확인했습니다.
+- **데스크톱 앱, `https://192.168.0.5:8443`**: 지문 확인 화면의 지문이 Node로 직접 읽은 서버 인증서 지문과 같음 → **연결하지 않음**이면 설정 그대로 → **신뢰하고 연결** → `settings.json`에 그 출처·지문만 저장 → 회원가입 → 재실행 시 묻지 않고 열림·로그인 유지 → 후원 1,000원 결제하기 → 토스 퀵계좌이체 테스트 화면이 앱 창 안(iframe)에 열림, 입력 없이 닫음 → `window.open`·`target=_blank`·`location.href`로 연 `example.com`·`example.net`은 Chrome에 열리고 앱은 그대로, `file:///C:/Windows/win.ini`는 막힘 → 가짜 카메라로 송출, 앱 새 창에서 1280x720 재생, 종료 → 같은 주소에 기존 볼륨(12시간 인증서 `B9:A7:A1:23:…:80:34`)의 서버를 띄우자 "인증서 지문이 바뀌었습니다"와 두 지문, 거절하면 저장 지문 그대로 → 원래 서버로 되돌리자 묻지 않고 열림 → 다른 출처(`https://127.0.0.1:8443`, 이름 불일치)의 인증서 오류는 묻지 않고 실패.
+- **Android 앱, 에뮬레이터(API 37)**: 지문 확인(Node로 본 지문과 같음) → 거절·신뢰 → 로그인 후 앱 프로세스를 끝내고 다시 열어도 로그인 유지 → 뒤로 가기(이전 화면, 첫 화면에서 종료) → 외부 링크는 Chrome, `file:`은 막힘 → 댓글 → 후원 결제하기: 모바일은 결제창(`payment-gateway-sandbox.tosspayments.com/mobile`)으로 화면이 이동해 앱 안에서 열림, 입력 없이 `<` → "후원을 취소했습니다", 로그인 유지 → 권한 거절 시 "권한이 거부되었습니다" + 앱 설정 안내 대화상자, **설정 열기**는 chzzz 앱 정보 화면 → 허용 뒤 720x1280 송출, 설치된 데스크톱 앱에서 720x1280 재생, 종료하면 데스크톱에도 종료 표시 → Caddy 정지 시 연결 실패 화면, 켜고 다시 시도로 복귀. 마지막에 서명된 릴리스 apk로 다시 설치해 핵심 흐름(지문 신뢰, 로그인 유지)을 확인했습니다.
+- **Android 앱, 실제 휴대폰**: 서명된 apk를 휴대폰 다운로드 폴더로 옮겨 "출처를 알 수 없는 앱" 허용 후 설치 → 지문 `C4:16:15:54…F4:37:81` 일치 확인 후 신뢰 → 로그인 → 최근 앱에서 닫고 다시 열어도 로그인 유지 → 카메라·마이크 허용, 실제 카메라로 송출(방송 중) → 데스크톱 앱에서 720x1280 재생(3초 동안 재생 위치 7.6→10.6초) → 휴대폰에서 종료 → 데스크톱에 "방송이 종료되었습니다" → 뒤로 가기는 이전 화면, 첫 화면에서 앱 종료.
+- 확인하지 않은 것: 카드 정보를 넣는 결제, Windows 10 실기기, 설치 마법사 화면(조용한 설치로 확인), Android 앱 데이터 삭제로 주소 초기화.
+
 화면 예시는 [docs/screenshots/stage-1](docs/screenshots/stage-1), [docs/screenshots/stage-2](docs/screenshots/stage-2), [docs/screenshots/stage-3](docs/screenshots/stage-3), [docs/screenshots/stage-4](docs/screenshots/stage-4)에 있습니다.
 
 ## 테스트
@@ -1008,10 +1197,23 @@ cd backend && ./gradlew test
 cd frontend && npm test
 ```
 
+```bash
+cd apps/shell && npm test
+```
+
+```bash
+cd apps/desktop && npm test
+```
+
+```bash
+cd apps/android && npm run sync && cd android && ./gradlew testReleaseUnitTest
+```
+
 - 후원: 토스 결제 서비스는 테스트에서 가짜(`FakePaymentGateway`)로 바꿔 끼워 승인·조회의 성공·거절·통신 실패·"이미 처리된 결제"를 만들고, 승인 호출 횟수로 "다시 부르지 않음"을 확인합니다. 동시 확인 요청은 두 스레드로 같은 주문을 확인해 한 건만 확정되는지 봅니다. 실제 토스 연동 코드(`TossPaymentGateway`)는 PC에 띄운 가짜 HTTP 서버로 요청 모양(Basic 인증, 본문)과 응답 해석을 확인합니다. 프론트는 결제위젯 어댑터를 가짜로 바꿉니다.
 - 백엔드: Spring Boot 앱 전체를 띄우고 REST API로만 검증합니다. 로그인은 테스트도 실제 회원가입·로그인 API로 받은 세션을 쓰고, 상태를 바꾸는 API마다 비로그인·소유자(작성자)·다른 회원 세 경우를 확인합니다. 쿠키 속성·CSRF 흐름은 실제 서버에 브라우저처럼 요청해 확인합니다. DB는 Testcontainers로 실제 PostgreSQL을 띄우므로 **Docker가 실행 중이어야** 합니다. MediaMTX의 인증·훅 요청은 테스트가 내부 엔드포인트를 직접 불러 흉내 내고, 시간(대기 시간 초과)은 테스트용 시계로 바꿔 끼웁니다.
 - 프론트엔드: Vitest + React Testing Library로 라우터를 포함한 앱 전체를 렌더링하고, 네트워크 경계(`fetch`)와 미디어 어댑터(카메라·WebRTC)만 가짜로 바꿉니다. 로그인 상태도 스텁한 `/api/auth/me` 응답으로 만듭니다.
 - 여러 인스턴스(5단계): 같은 PostgreSQL(Testcontainers)을 쓰는 실제 서버 두 개(인스턴스 A·B)를 띄워, A에서 로그인한 쿠키로 B가 로그인 상태를 보이고, A에서 로그아웃하면 B도 `401`이며, B에서 CSRF가 필요한 댓글 작성이 통과하는지 확인합니다(`MultiInstanceApiTest`). 응답 헤더 `X-Backend-Instance`, 주기 작업(대기 정리·송출 대조)을 두 인스턴스에서 동시에 돌려도 예외 없이 같은 결과인지도 확인합니다. MediaMTX 제어 API는 가짜 HTTP 서버로 흉내 냅니다. Kubernetes 매니페스트·HPA·k6 스크립트는 자동 테스트 대신 위 [직접 확인](#스케일-아웃인과-상태-유지-5단계-kubernetes)으로 확인합니다.
+- 앱(6단계): 앱이 겉으로 보이는 판단만 테스트합니다. 서버 주소 허용·거절, 연결 확인 결과 해석, 인증서를 받아들임·묻기·거절, 주소를 앱 안·기본 브라우저·운영체제·막음 중 어디서 열지, 권한 허용, 로그인 쿠키 보존을 Electron·WebView 없이 도는 순수 함수로 만들어 데스크톱은 Vitest, Android는 JUnit으로 같은 규칙 표를 확인합니다. 시작 화면은 Vitest + DOM 테스트로 앱 다리만 가짜로 바꿉니다. 설치·인증서 신뢰·송출·결제창·외부 링크는 [앱 직접 확인](#앱-6단계-데스크톱-앱--android-앱)으로 확인했습니다. 마지막 실행 결과: shell 41, desktop 65, frontend 119, backend 219, Android 단위 26개 모두 통과.
 
 ## 문서
 
@@ -1019,4 +1221,5 @@ cd frontend && npm test
 - [docs/adr/](docs/adr/): 설계 결정 기록
 - [docs/tdd-log.md](docs/tdd-log.md): TDD 사이클 기록
 - [k8s/](k8s/): Kubernetes 매니페스트(kustomize), [load/](load/): k6 부하·상태 유지 확인 스크립트
+- [apps/](apps/): 앱(`shell` 시작 화면, `desktop` 데스크톱 앱, `android` Android 앱)
 - [AGENTS.md](AGENTS.md): 작업 지침
